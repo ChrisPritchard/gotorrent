@@ -15,7 +15,7 @@ type TorrentMetadata struct {
 }
 
 type TorrentFile struct {
-	Path   string
+	Path   []string
 	Length int
 }
 
@@ -34,37 +34,76 @@ func parse_torrent_file(file_data []byte) (TorrentMetadata, error) {
 
 	announce, err := get_val[string](root, "announce")
 	if err != nil {
-		return nil_file, fmt.Errorf("invalid torrent: %A", err)
+		return nil_file, fmt.Errorf("invalid torrent: %v", err)
 	}
 	announcers := []string{announce}
 
-	announce_list, err := get_string_list(root, "announce-list")
+	announce_list, err := get_val[[]any](root, "announce-list")
 	if err == nil {
-		announcers = append(announcers, announce_list...)
+		for _, entry := range announce_list {
+			sub_list, ok := entry.([]any)
+			if !ok {
+				return nil_file, fmt.Errorf("invalid announce-list entry: %v", entry)
+			}
+			for _, sub_entry := range sub_list {
+				final_entry, ok := sub_entry.(string)
+				if !ok {
+					return nil_file, fmt.Errorf("invalid announce-list entry: %v", entry)
+				}
+				announcers = append(announcers, final_entry)
+			}
+		}
 	}
 
 	info, err := get_val[map[string]any](root, "info")
 	if err != nil {
-		return nil_file, fmt.Errorf("invalid torrent: %A", err)
+		return nil_file, fmt.Errorf("invalid torrent: %v", err)
 	}
 
 	name, err := get_val[string](info, "name")
 	if err != nil {
-		return nil_file, fmt.Errorf("invalid torrent: %A", err)
+		return nil_file, fmt.Errorf("invalid torrent: %v", err)
 	}
 
 	piece_length, err := get_val[int](info, "piece length")
 	if err != nil {
-		return nil_file, fmt.Errorf("invalid torrent: %A", err)
+		return nil_file, fmt.Errorf("invalid torrent: %v", err)
 	}
 
 	pieces, err := get_val[string](info, "pieces")
 	if err != nil {
-		return nil_file, fmt.Errorf("invalid torrent: %A", err)
+		return nil_file, fmt.Errorf("invalid torrent: %v", err)
 	}
 	pieces_parsed := []string{}
-	for i := 0; i < len(pieces)/piece_length; i += piece_length {
-		pieces_parsed = append(pieces_parsed, pieces[i*piece_length:i+1*piece_length])
+	for i := 0; i < len(pieces)/20; i += 20 {
+		pieces_parsed = append(pieces_parsed, pieces[i*20:(i+1)*20])
+	}
+
+	length, err := get_val[int](info, "length")
+	files, err2 := get_val[[]any](info, "files")
+	if err != nil && err2 != nil {
+		return nil_file, fmt.Errorf("invalid torrent: invalid files or missing length")
+	}
+	file_set := []TorrentFile{}
+	if err2 != nil {
+		for _, file := range files {
+			info, ok := file.(map[string]any)
+			if !ok {
+				return nil_file, fmt.Errorf("invalid torrent: file entries are not valid dictionaries")
+			}
+			file_length, err := get_val[int](info, "length")
+			if err != nil {
+				return nil_file, fmt.Errorf("invalid torrent: %v", err)
+			}
+			path, err := get_string_list(info, "path")
+			if err != nil {
+				return nil_file, fmt.Errorf("invalid torrent: %v", err)
+			}
+			file_set = append(file_set, TorrentFile{
+				Length: file_length,
+				Path:   path,
+			})
+		}
 	}
 
 	return TorrentMetadata{
@@ -73,8 +112,8 @@ func parse_torrent_file(file_data []byte) (TorrentMetadata, error) {
 		Name:        name,
 		PieceLength: piece_length,
 		Pieces:      pieces_parsed,
-		Length:      0,
-		Files:       []TorrentFile{},
+		Length:      length,
+		Files:       file_set,
 	}, nil
 }
 
@@ -86,7 +125,7 @@ func get_val[T any](m map[string]any, key string) (T, error) {
 	}
 	res, ok := val.(T)
 	if !ok {
-		return nilT, fmt.Errorf("key %s's value was an invalid type: %A", key, val)
+		return nilT, fmt.Errorf("key %s's value was an invalid type: %v", key, val)
 	}
 	return res, nil
 }
@@ -98,9 +137,9 @@ func get_string_list(m map[string]any, key string) ([]string, error) {
 	}
 	results := []string{}
 	for _, v := range list {
-		s, ok := v.([]byte)
+		s, ok := v.(string)
 		if !ok {
-			return nil, fmt.Errorf("a non-string value was in the list: %A", v)
+			return nil, fmt.Errorf("a non-string value was in the list: %v", v)
 		}
 		results = append(results, string(s))
 	}
