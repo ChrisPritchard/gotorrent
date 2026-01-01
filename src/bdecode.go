@@ -16,17 +16,17 @@ func decode_from_bencoded(data []byte) (any, []byte, error) {
 
 	switch data[0] {
 	case 'i':
-		return parse_int(data, data_len)
+		return parse_bencoded_int(data, data_len)
 	case 'l':
-		return parse_list(data, data_len)
+		return parse_bencoded_list(data, data_len)
 	case 'd':
-		return parse_dict(data, data_len)
+		return parse_bencoded_dict(data, data_len)
 	}
 
-	return parse_string(data, data_len)
+	return parse_bencoded_string(data, data_len)
 }
 
-func parse_dict(data []byte, data_len int) (any, []byte, error) {
+func parse_bencoded_dict(data []byte, data_len int) (any, []byte, error) {
 	if data_len < 2 {
 		return nil, nil, fmt.Errorf("invalid list - should start with 'd' and end with 'e'")
 	}
@@ -66,7 +66,7 @@ func parse_dict(data []byte, data_len int) (any, []byte, error) {
 	}
 }
 
-func parse_list(data []byte, data_len int) (any, []byte, error) {
+func parse_bencoded_list(data []byte, data_len int) (any, []byte, error) {
 	if data_len < 2 {
 		return nil, nil, fmt.Errorf("invalid list - should start with 'l' and end with 'e'")
 	}
@@ -91,7 +91,7 @@ func parse_list(data []byte, data_len int) (any, []byte, error) {
 	}
 }
 
-func parse_int(data []byte, data_len int) (any, []byte, error) {
+func parse_bencoded_int(data []byte, data_len int) (any, []byte, error) {
 	if data_len < 3 || (data[1] == '-' && data_len < 4) {
 		return nil, nil, fmt.Errorf("invalid integer - should start with 'i' and end with 'e'")
 	}
@@ -124,7 +124,7 @@ func parse_int(data []byte, data_len int) (any, []byte, error) {
 	return value, data[e+1:], nil
 }
 
-func parse_string(data []byte, data_len int) (any, []byte, error) {
+func parse_bencoded_string(data []byte, data_len int) (any, []byte, error) {
 	i := 0
 	for data[i] >= '0' && data[i] <= '9' {
 		if data_len <= i {
