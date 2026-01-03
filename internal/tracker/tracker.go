@@ -2,8 +2,10 @@ package tracker
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 
@@ -19,7 +21,7 @@ func CallTracker(metadata torrent.TorrentMetadata) (TrackerResponse, error) {
 	id := make([]byte, 20)
 	_, err := rand.Read(id)
 	if err != nil {
-		return nil_info, err
+		return nil_resp, err
 	}
 
 	port := 6881
@@ -31,17 +33,17 @@ func CallTracker(metadata torrent.TorrentMetadata) (TrackerResponse, error) {
 	client := &http.Client{}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return nil_info, err
+		return nil_resp, err
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil_info, err
+		return nil_resp, err
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil_info, err
+		return nil_resp, err
 	}
 
 	return parse_tracker_response(body)
@@ -50,39 +52,39 @@ func CallTracker(metadata torrent.TorrentMetadata) (TrackerResponse, error) {
 func parse_tracker_response(data []byte) (TrackerResponse, error) {
 	decoded, _, err := bencode.Decode(data)
 	if err != nil {
-		return nil_info, err
+		return nil_resp, err
 	}
 	root, ok := decoded.(map[string]any)
 	if !ok {
-		return nil_info, fmt.Errorf("invalid tracker response - not a bencode dict")
+		return nil_resp, fmt.Errorf("invalid tracker response - not a bencode dict")
 	}
 
 	failure, err := bencode.Get[string](root, "failure reason")
 	if err == nil {
-		return nil_info, fmt.Errorf("tracker returned failure: %s", failure)
+		return nil_resp, fmt.Errorf("tracker returned failure: %s", failure)
 	}
 
 	interval, err := bencode.Get[int](root, "interval")
 	if err != nil {
-		return nil_info, fmt.Errorf("invalid tracker response - missing interval")
+		return nil_resp, fmt.Errorf("invalid tracker response - missing interval")
 	}
 
 	peers_compact, err1 := bencode.Get[string](root, "peers")
 	peers_full, err2 := bencode.Get[[]any](root, "peers")
 	if err1 != nil && err2 != nil {
-		return nil_info, fmt.Errorf("invalid tracker response - missing peers")
+		return nil_resp, fmt.Errorf("invalid tracker response - missing peers")
 	}
 
 	var peers []PeerInfo
 	if err1 == nil {
 		peers, err = parse_compact_peers(peers_compact)
 		if err != nil {
-			return nil_info, fmt.Errorf("invalid tracker response - invalid compact peer response: %v", err)
+			return nil_resp, fmt.Errorf("invalid tracker response - invalid compact peer response: %v", err)
 		}
 	} else {
 		peers, err = parse_full_peers(peers_full)
 		if err != nil {
-			return nil_info, fmt.Errorf("invalid tracker response - invalid peer response: %v", err)
+			return nil_resp, fmt.Errorf("invalid tracker response - invalid peer response: %v", err)
 		}
 	}
 
@@ -93,9 +95,54 @@ func parse_tracker_response(data []byte) (TrackerResponse, error) {
 }
 
 func parse_full_peers(peers_full []any) ([]PeerInfo, error) {
-	panic("unimplemented")
+	result := []PeerInfo{}
+
+	for _, p := range peers_full {
+		peer, ok := p.(map[string]any)
+		if !ok {
+			return nil_info, fmt.Errorf("invalid tracker response - invalid peer response - %v is not a dict", p)
+		}
+
+		port, err := bencode.Get[uint16](peer, "port")
+		if err != nil {
+			return nil_info, fmt.Errorf("invalid tracker response - invalid peer response - missing port on a peer")
+		}
+
+		ip, err := bencode.Get[string](peer, "ip")
+		if err != nil {
+			return nil_info, fmt.Errorf("invalid tracker response - invalid peer response - missing ip on a peer")
+		}
+
+		id, err := bencode.Get[string](peer, "peer id")
+		if err != nil {
+			return nil_info, fmt.Errorf("invalid tracker response - invalid peer response - missing peer id on a peer")
+		}
+
+		result = append(result, PeerInfo{
+			Id:   id,
+			IP:   ip,
+			Port: port,
+		})
+	}
+
+	return result, nil
 }
 
 func parse_compact_peers(peers_compact string) ([]PeerInfo, error) {
-	panic("unimplemented")
+	if len(peers_compact)%6 != 0 {
+		return nil_info, fmt.Errorf("invalid tracker response - invalid packed peer response - size isnt a multiple of 6")
+	}
+	result := []PeerInfo{}
+
+	for i := 0; i < len(peers_compact); i += 6 {
+		ip_bytes := peers_compact[i : i+4]
+		ip := net.IPv4(ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]).String()
+
+		port_bytes := []byte(peers_compact[i+4 : i+6])
+		port := binary.BigEndian.Uint16(port_bytes)
+
+		result = append(result, PeerInfo{IP: ip, Port: port})
+	}
+
+	return result, nil
 }

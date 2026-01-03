@@ -2,8 +2,8 @@ package tracker
 
 type PeerInfo struct {
 	Id   string
-	IP   int
-	Port int
+	IP   string
+	Port uint16
 }
 
 type TrackerResponse struct {
@@ -11,4 +11,5 @@ type TrackerResponse struct {
 	Interval int
 }
 
-var nil_info TrackerResponse
+var nil_resp TrackerResponse
+var nil_info []PeerInfo
