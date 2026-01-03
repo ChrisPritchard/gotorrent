@@ -112,6 +112,12 @@ func parse_torrent_file(file_data []byte) (TorrentMetadata, error) {
 		}
 	}
 
+	if length == 0 {
+		for _, f := range file_set {
+			length += f.Length
+		}
+	}
+
 	return TorrentMetadata{
 		Announcers:  announcers,
 		InfoHash:    hash,
