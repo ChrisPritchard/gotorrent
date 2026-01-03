@@ -7,8 +7,10 @@ type PeerInfo struct {
 }
 
 type TrackerResponse struct {
-	Peers    []PeerInfo
-	Interval int
+	LocalID   []byte
+	LocalPort uint16
+	Peers     []PeerInfo
+	Interval  int
 }
 
 var nil_resp TrackerResponse

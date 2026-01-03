@@ -46,52 +46,55 @@ func CallTracker(metadata torrent.TorrentMetadata) (TrackerResponse, error) {
 		return nil_resp, err
 	}
 
-	return parse_tracker_response(body)
+	peers, interval, err := parse_tracker_response(body)
+	return TrackerResponse{
+		LocalID:   id,
+		LocalPort: uint16(port),
+		Peers:     peers,
+		Interval:  interval,
+	}, nil
 }
 
-func parse_tracker_response(data []byte) (TrackerResponse, error) {
+func parse_tracker_response(data []byte) ([]PeerInfo, int, error) {
 	decoded, _, err := bencode.Decode(data)
 	if err != nil {
-		return nil_resp, err
+		return nil, 0, err
 	}
 	root, ok := decoded.(map[string]any)
 	if !ok {
-		return nil_resp, fmt.Errorf("invalid tracker response - not a bencode dict")
+		return nil, 0, fmt.Errorf("invalid tracker response - not a bencode dict")
 	}
 
 	failure, err := bencode.Get[string](root, "failure reason")
 	if err == nil {
-		return nil_resp, fmt.Errorf("tracker returned failure: %s", failure)
+		return nil, 0, fmt.Errorf("tracker returned failure: %s", failure)
 	}
 
 	interval, err := bencode.Get[int](root, "interval")
 	if err != nil {
-		return nil_resp, fmt.Errorf("invalid tracker response - missing interval")
+		return nil, 0, fmt.Errorf("invalid tracker response - missing interval")
 	}
 
 	peers_compact, err1 := bencode.Get[string](root, "peers")
 	peers_full, err2 := bencode.Get[[]any](root, "peers")
 	if err1 != nil && err2 != nil {
-		return nil_resp, fmt.Errorf("invalid tracker response - missing peers")
+		return nil, 0, fmt.Errorf("invalid tracker response - missing peers")
 	}
 
 	var peers []PeerInfo
 	if err1 == nil {
 		peers, err = parse_compact_peers(peers_compact)
 		if err != nil {
-			return nil_resp, fmt.Errorf("invalid tracker response - invalid compact peer response: %v", err)
+			return nil, 0, fmt.Errorf("invalid tracker response - invalid compact peer response: %v", err)
 		}
 	} else {
 		peers, err = parse_full_peers(peers_full)
 		if err != nil {
-			return nil_resp, fmt.Errorf("invalid tracker response - invalid peer response: %v", err)
+			return nil, 0, fmt.Errorf("invalid tracker response - invalid peer response: %v", err)
 		}
 	}
 
-	return TrackerResponse{
-		Peers:    peers,
-		Interval: interval,
-	}, nil
+	return peers, interval, nil
 }
 
 func parse_full_peers(peers_full []any) ([]PeerInfo, error) {
