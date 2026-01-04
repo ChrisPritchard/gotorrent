@@ -12,6 +12,20 @@ import (
 
 var conn_timeout = 5 * time.Second
 
+type peer_message_type int
+
+const (
+	choke peer_message_type = iota
+	unchoke
+	interested
+	not_interested
+	have
+	bitfield
+	request
+	piece
+	cancel
+)
+
 func Handshake(metadata torrent.TorrentMetadata, tracker_response tracker.TrackerResponse, peer tracker.PeerInfo) (net.Conn, error) {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", peer.IP, peer.Port), conn_timeout)
 	if err != nil {
