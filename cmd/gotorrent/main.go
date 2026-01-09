@@ -47,6 +47,8 @@ func try_download(torrent_file_path string) error {
 		return fmt.Errorf("failed to connect to a peer")
 	}
 
+	// pass conns to a downloader queue
+
 	return nil
 }
 
