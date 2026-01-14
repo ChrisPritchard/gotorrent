@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
@@ -58,6 +59,38 @@ func try_download(torrent_file_path string) error {
 	err = peer.SendInterested(conns[0])
 	if err != nil {
 		return err
+	}
+
+	pipeline := make(chan struct{}, 5)
+
+	go func() {
+		for i := range torrent.Pieces {
+			for j := 0; j < torrent.PieceLength; j += 1 << 14 {
+				pipeline <- struct{}{}
+				err := peer.RequestPiecePart(conns[0], uint(i), uint(j), uint(torrent.PieceLength))
+				if err != nil {
+					panic(err)
+				}
+			}
+		}
+	}()
+
+	buffer := make([]byte, 1<<14+5)
+	for {
+		n, err := conns[0].Read(buffer)
+		if err != nil {
+			return err
+		}
+		if n < 5 {
+			continue
+		}
+
+		kind := buffer[4]
+		if int(kind) == 7 {
+			index := binary.BigEndian.Uint32(buffer[5:9])
+			start := binary.BigEndian.Uint32(buffer[9:13])
+			piece := buffer[13:n]
+		}
 	}
 
 	// peer.RequestPieces()
