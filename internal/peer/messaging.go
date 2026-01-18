@@ -81,11 +81,11 @@ func receive_message(conn net.Conn) (peer_message_type, []byte, error) {
 		return 0, nil, fmt.Errorf("was expecting %d bytes, but only received %d", length+4, n)
 	}
 
-	kind := peer_message_type(received[4])
+	kind := peer_message_type(received[0])
 	if kind > cancel || kind < choke {
 		return 0, nil, fmt.Errorf("invalid message type received: %d", kind)
 	}
 
-	data := received[5:]
+	data := received[1:]
 	return kind, data, nil
 }
