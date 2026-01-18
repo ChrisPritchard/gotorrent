@@ -17,7 +17,7 @@ func main() {
 
 	err := try_download(file)
 	if err != nil {
-		fmt.Printf("unable to download from torrent file: %v", err)
+		fmt.Printf("unable to download via torrent file: %v", err)
 		os.Exit(1)
 	}
 }

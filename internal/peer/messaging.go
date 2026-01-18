@@ -28,6 +28,11 @@ const (
 // 	return err
 // }
 
+// func keep_alive(conn net.Conn) error {
+// 	_, err := conn.Write([]byte{})
+// 	return err
+// }
+
 func send_message(conn net.Conn, kind peer_message_type, data []byte) error {
 	length := len(data) + 1           // 1 for the message type
 	to_send := make([]byte, 4+length) // first four bytes are where we put the length
@@ -49,18 +54,30 @@ func send_message(conn net.Conn, kind peer_message_type, data []byte) error {
 func receive_message(conn net.Conn) (peer_message_type, []byte, error) {
 	reader := bufio.NewReader(conn)
 
-	len_bytes, err := reader.Peek(4)
-	if err != nil {
-		return 0, nil, err
+	length_buffer := make([]byte, 4)
+	var length uint32
+	for {
+		n, err := reader.Read(length_buffer)
+		if err != nil {
+			return 0, nil, err
+		}
+		if n == 0 {
+			// keep_alive received
+			continue
+		}
+		if n == 4 {
+			length = binary.BigEndian.Uint32(length_buffer)
+			break
+		}
+		return 0, nil, fmt.Errorf("unrecognised bytes received, length %d: %x", n, length_buffer[:n])
 	}
 
-	length := binary.BigEndian.Uint32(len_bytes)
-	received := make([]byte, 4+length) // we include the 4 bytes we peeked
+	received := make([]byte, length)
 	n, err := io.ReadFull(reader, received)
 	if err != nil {
 		return 0, nil, err
 	}
-	if n != int(length)+4 {
+	if n != int(length) {
 		return 0, nil, fmt.Errorf("was expecting %d bytes, but only received %d", length+4, n)
 	}
 
