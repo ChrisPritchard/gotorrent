@@ -68,7 +68,7 @@ func ParseTorrentFile(file_data []byte) (TorrentMetadata, error) {
 		return nil_torrent, fmt.Errorf("invalid torrent: %v", err)
 	}
 	pieces_parsed := []string{}
-	for i := 0; i < len(pieces)/20; i += 20 {
+	for i := 0; i < len(pieces)/20; i++ {
 		pieces_parsed = append(pieces_parsed, pieces[i*20:(i+1)*20])
 	}
 

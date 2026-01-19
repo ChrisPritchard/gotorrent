@@ -78,7 +78,7 @@ func receive_message(conn net.Conn) (peer_message_type, []byte, error) {
 		return 0, nil, err
 	}
 	if n != int(length) {
-		return 0, nil, fmt.Errorf("was expecting %d bytes, but only received %d", length+4, n)
+		return 0, nil, fmt.Errorf("was expecting %d bytes, but only received %d", length, n)
 	}
 
 	kind := peer_message_type(received[0])
