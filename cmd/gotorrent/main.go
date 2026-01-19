@@ -100,6 +100,8 @@ func try_download(torrent_file_path string) error {
 		}
 		break
 	}
+	len := binary.BigEndian.Uint32(buffer[0:4])
+	fmt.Println(len)
 	kind := buffer[4]
 	if int(kind) == 7 {
 		index := binary.BigEndian.Uint32(buffer[5:9])
@@ -158,7 +160,7 @@ func try_download(torrent_file_path string) error {
 	// 	}
 	// }
 
-	// fmt.Println("done")
+	fmt.Println("done")
 
 	return nil
 }
