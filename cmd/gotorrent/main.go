@@ -1,15 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
-	"sync"
 
 	"github.com/chrispritchard/gotorrent/internal/peer"
 	"github.com/chrispritchard/gotorrent/internal/torrent"
 	"github.com/chrispritchard/gotorrent/internal/tracker"
+	"github.com/chrispritchard/gotorrent/internal/util"
 )
 
 func main() {
@@ -38,15 +39,23 @@ func try_download(torrent_file_path string) error {
 		return fmt.Errorf("failed to register with tracker: %v", err)
 	}
 
-	peer_handshakes := get_handshakes(torrent, tracker_response)
-	conns, _ := concurrent(peer_handshakes, 20)
+	conns := ConnectToPeers(torrent, tracker_response)
+	if len(conns) == 0 {
+		return fmt.Errorf("failed to connect to a peer")
+	}
+
 	for _, c := range conns {
 		defer c.Close()
 	}
 
-	if len(conns) == 0 {
-		return fmt.Errorf("failed to connect to a peer")
-	}
+	// a. create local bitfield, and wrap each conn with the remote bitfield
+	// also track in flight messages per peer, so we can cancel them if received else where? if requesting from more than one peer at a time
+	// b. start sending requests, allocating to each peer
+	// c. continuosly recieve from each peer
+	// could just forward this to the central manager, as the data. but if we were to handle 'have' requests or choke requests that would need to be peer peer
+	// d. channel track received pieces, update local bitfield
+	// e. channel to send requests to peers.
+	// should just be kind and data. maybe just the entire message
 
 	// working with a single conn
 
@@ -81,131 +90,95 @@ func try_download(torrent_file_path string) error {
 		return err
 	}
 
-	// test request
-	err = peer.RequestPiecePart(conns[0], 3, 20, 1<<14)
-	if err != nil {
-		return err
+	pipeline := make(chan int, 5) // concurrent requests
+	for range 5 {
+		pipeline <- 1
 	}
+	errmsg := make(chan error)
+	valid := make(chan bool)
+	received := 0
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// test receive
-	var n int
-	buffer := make([]byte, 1<<14+5)
-	for {
-		n, err = conns[0].Read(buffer)
-		if err != nil {
-			return err
+	pieces_per_block := (torrent.PieceLength / (1 << 14))
+
+	go func() {
+		for i := 0; i < len(torrent.Pieces); i++ {
+			for j := 0; j < pieces_per_block; j++ {
+				select {
+				case <-ctx.Done():
+					return
+				case <-pipeline:
+					err = peer.RequestPiecePart(conns[0], uint(i), uint(j), 1<<14)
+					if err != nil {
+						errmsg <- err
+					}
+				}
+			}
 		}
-		if n == 0 {
-			continue
+	}()
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				var n int
+				buffer := make([]byte, 1<<14+5)
+				for {
+					n, err = conns[0].Read(buffer)
+					if err != nil {
+						errmsg <- err
+					}
+					if n == 0 {
+						continue
+					}
+					break
+				}
+				kind := buffer[4]
+				if int(kind) == 7 {
+					index := binary.BigEndian.Uint32(buffer[5:9])
+					start := binary.BigEndian.Uint32(buffer[9:13])
+					piece := buffer[13:n]
+
+					partials[index].Set(int(start), piece)
+					fmt.Printf("piece %d block received\n", index)
+					if partials[index].Valid() {
+						partials[index].WritePiece(out_file)
+						valid <- true
+						fmt.Printf("piece %d finished\n", index)
+					}
+
+					pipeline <- 1
+				}
+			}
 		}
-		break
+	}()
+
+	select {
+	case e := <-errmsg:
+		return e
+	case <-valid:
+		received++
+		if received == len(torrent.Pieces) {
+			fmt.Println("done")
+			return nil
+		}
 	}
-	len := binary.BigEndian.Uint32(buffer[0:4])
-	fmt.Println(len)
-	kind := buffer[4]
-	if int(kind) == 7 {
-		index := binary.BigEndian.Uint32(buffer[5:9])
-		start := binary.BigEndian.Uint32(buffer[9:13])
-		piece := buffer[13:n]
-
-		partials[index].Set(int(start), piece)
-		if partials[index].Valid() {
-			partials[index].WritePiece(out_file)
-		}
-	}
-
-	// continuously request pieces
-
-	// pipeline := make(chan struct{}, 5) // limits the number of concurrent requests
-
-	// go func() {
-	// 	for i := range torrent.Pieces {
-	// 		for j := 0; j < torrent.PieceLength; j += 1 << 14 {
-	// 			pipeline <- struct{}{}
-	// 			err := peer.RequestPiecePart(conns[0], uint(i), uint(j), uint(torrent.PieceLength))
-	// 			if err != nil {
-	// 				panic(err)
-	// 			}
-	// 		}
-	// 	}
-	// }()
-
-	// valid_count := 0
-	// buffer := make([]byte, 1<<14+5)
-
-	// for {
-	// 	n, err := conns[0].Read(buffer)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	if n < 5 {
-	// 		continue
-	// 	}
-
-	// 	kind := buffer[4]
-	// 	if int(kind) == 7 {
-	// 		index := binary.BigEndian.Uint32(buffer[5:9])
-	// 		start := binary.BigEndian.Uint32(buffer[9:13])
-	// 		piece := buffer[13:n]
-
-	// 		partials[index].Set(int(start), piece)
-	// 		if partials[index].Valid() {
-	// 			partials[index].WritePiece(out_file)
-	// 			valid_count++
-	// 		}
-	// 	}
-
-	// 	if valid_count == len(partials) {
-	// 		break
-	// 	}
-	// }
-
-	fmt.Println("done")
 
 	return nil
 }
 
-func get_handshakes(metadata torrent.TorrentMetadata, tracker_response tracker.TrackerResponse) []op[net.Conn] {
-	ops := make([]op[net.Conn], len(tracker_response.Peers))
+func ConnectToPeers(metadata torrent.TorrentMetadata, tracker_response tracker.TrackerResponse) []net.Conn {
+	ops := make([]util.Op[net.Conn], len(tracker_response.Peers))
 	for i, p := range tracker_response.Peers {
 		local_p := p
 		ops[i] = func() (net.Conn, error) {
 			return peer.Handshake(metadata, tracker_response, local_p)
 		}
 	}
-	return ops
-}
 
-type op[T any] = func() (T, error)
-
-func concurrent[T any](ops []op[T], max_concurrent int) ([]T, []error) {
-	var result []T
-	var errors []error
-
-	var mutex sync.Mutex // ensuring single-time access to slices
-
-	sem := make(chan struct{}, max_concurrent) // basically a queue of open 'chances' - we cant run an op until we can reserve a spot in the queue
-	var wg sync.WaitGroup                      // used to wait until all ops are completed - each one adds to this
-	wg.Add(len(ops))
-
-	for _, o := range ops {
-		go func(o func() (T, error)) {
-			defer wg.Done()
-
-			sem <- struct{}{}        // acquire slot
-			defer func() { <-sem }() // release slot
-
-			r, e := o()
-			mutex.Lock()
-			if e != nil {
-				errors = append(errors, e)
-			} else {
-				result = append(result, r)
-			}
-			mutex.Unlock()
-		}(o)
-	}
-
-	wg.Wait() // will wait until all done
-	return result, errors
+	conns, _ := util.Concurrent(ops, 20)
+	return conns
 }
