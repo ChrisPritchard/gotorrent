@@ -100,11 +100,11 @@ func try_download(torrent_file_path string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pieces_per_block := (torrent.PieceLength / (1 << 14))
+	pieces_per_block := torrent.PieceLength / (1 << 14)
 
 	go func() {
-		for i := 0; i < len(torrent.Pieces); i++ {
-			for j := 0; j < pieces_per_block; j++ {
+		for i := range len(torrent.Pieces) {
+			for j := range pieces_per_block {
 				select {
 				case <-ctx.Done():
 					return
@@ -135,6 +135,11 @@ func try_download(torrent_file_path string) error {
 						continue
 					}
 					break
+				}
+				length := binary.BigEndian.Uint32(buffer[0:4]) - 4 // exclude length?
+				if length != uint32(n) {
+					errmsg <- fmt.Errorf("received less bytes (%d) than length specified (%d). first 12 bytes: %x", n, length, buffer[0:min(n, 12)])
+					return
 				}
 				kind := buffer[4]
 				if int(kind) == 7 {
