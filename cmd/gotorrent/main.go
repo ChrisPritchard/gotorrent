@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"sync"
 
 	"github.com/chrispritchard/gotorrent/internal/bitfields"
 	"github.com/chrispritchard/gotorrent/internal/messaging"
@@ -14,6 +13,7 @@ import (
 	"github.com/chrispritchard/gotorrent/internal/torrent"
 	"github.com/chrispritchard/gotorrent/internal/tracker"
 	"github.com/chrispritchard/gotorrent/internal/util"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
@@ -70,12 +70,7 @@ func try_download(torrent_file_path string) error {
 
 	// set up all partial pieces
 
-	partials := make([]peer.PartialPiece, len(torrent.Pieces))
-	for i, p := range torrent.Pieces {
-		begin := i * torrent.PieceLength
-		length := min(begin+torrent.PieceLength, torrent.Length) - begin
-		partials[i] = peer.CreatePartialPiece(p, begin, length)
-	}
+	partials := peer.CreatePartialPieces(torrent.Pieces, torrent.PieceLength, torrent.Length)
 
 	// create full file
 	out_file, err := os.Create(torrent.Name) // assuming a single file with no directory info
@@ -94,40 +89,36 @@ func try_download(torrent_file_path string) error {
 		pipeline <- 1
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(len(torrent.Pieces))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	g, ctx := errgroup.WithContext(context.Background())
 
-	go func() {
+	g.Go(func() error {
 		for i, p := range partials {
 			for j := range p.Length() {
 				select {
 				case <-ctx.Done():
-					return
+					return nil
 				case <-pipeline:
-					err = request_piece_part(conns[0], i, j*peer.BLOCK_SIZE, peer.BLOCK_SIZE)
+					err = request_piece_block(conns[0], i, j*peer.BLOCK_SIZE, p.BlockSize(j))
+					fmt.Printf("requested block %d of piece %d\n", j, i)
 					if err != nil {
-						panic(err)
+						return err
 					}
-					// case <-time.After(5 * time.Second):
-					// 	errmsg <- fmt.Errorf("timedout waiting for a request window")
 				}
 			}
 		}
-	}()
+		return nil
+	})
 
-	go func() {
+	g.Go(func() error {
+		finished_pieces := 0
 		for {
 			select {
 			case <-ctx.Done():
-				return
-			// case <-time.After(5 * time.Second):
-			// 	errmsg <- fmt.Errorf("timedout waiting for a new block")
+				return nil
 			default:
 				kind, buffer, err := messaging.ReceiveMessage(conns[0])
 				if err != nil {
-					panic(err)
+					return err
 				}
 
 				if kind == messaging.MSG_PIECE {
@@ -140,7 +131,10 @@ func try_download(torrent_file_path string) error {
 					if partials[index].Valid() {
 						partials[index].WritePiece(out_file)
 						fmt.Printf("piece %d finished\n", index)
-						wg.Done()
+						finished_pieces++
+						if finished_pieces == len(torrent.Pieces) {
+							return nil
+						}
 					}
 				} else {
 					fmt.Printf("received an unhandled kind: %d\n", kind)
@@ -148,20 +142,11 @@ func try_download(torrent_file_path string) error {
 				pipeline <- 1
 			}
 		}
-	}()
+	})
 
-	// select {
-	// case e := <-errmsg:
-	// 	return e
-	// case <-valid:
-	// 	received++
-	// 	if received == len(torrent.Pieces) {
-	// 		fmt.Println("done")
-	// 		return nil
-	// 	}
-	// }
-
-	wg.Wait()
+	if err = g.Wait(); err != nil {
+		return err
+	}
 	fmt.Println("done")
 
 	return nil
@@ -180,7 +165,7 @@ func connect_to_peers(metadata torrent.TorrentMetadata, tracker_response tracker
 	return conns
 }
 
-func request_piece_part(conn net.Conn, index, begin, length int) error {
+func request_piece_block(conn net.Conn, index, begin, length int) error {
 	to_send := make([]byte, 12)
 	binary.BigEndian.PutUint32(to_send[:4], uint32(index))
 	binary.BigEndian.PutUint32(to_send[4:8], uint32(begin))

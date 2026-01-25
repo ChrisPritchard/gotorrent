@@ -9,23 +9,52 @@ import (
 )
 
 type PartialPiece struct {
-	hash   string
-	offset int
-	blocks []bool
-	data   []byte
+	hash        string
+	offset      int
+	blocks      []bool
+	block_sizes []int
+	data        []byte
 }
 
-func CreatePartialPiece(hash string, offset, full_length int) PartialPiece {
+func CreatePartialPieces(hashes []string, piece_length, total_pieces_length int) []PartialPiece {
+	result := make([]PartialPiece, len(hashes))
+	last_size := total_pieces_length % piece_length
+	for i := range hashes {
+		length := piece_length
+		if i == len(hashes)-1 && last_size != 0 {
+			length = last_size
+		}
+		result[i] = new_partial_piece(hashes[i], i*piece_length, length)
+	}
+	return result
+}
+
+func new_partial_piece(hash string, offset, full_length int) PartialPiece {
+	block_count := int(math.Ceil(float64(full_length) / float64(BLOCK_SIZE)))
+	last_size := full_length % BLOCK_SIZE
+	sizes := make([]int, block_count)
+	for i := range sizes {
+		if i == len(sizes)-1 && last_size != 0 {
+			sizes[i] = last_size
+		} else {
+			sizes[i] = BLOCK_SIZE
+		}
+	}
 	return PartialPiece{
-		hash:   hash,
-		offset: offset,
-		blocks: make([]bool, int(math.Ceil(float64(full_length)/float64(BLOCK_SIZE)))),
-		data:   make([]byte, full_length),
+		hash:        hash,
+		offset:      offset,
+		blocks:      make([]bool, block_count),
+		block_sizes: sizes,
+		data:        make([]byte, full_length),
 	}
 }
 
 func (pp *PartialPiece) Length() int {
 	return len(pp.blocks)
+}
+
+func (pp *PartialPiece) BlockSize(index int) int {
+	return pp.block_sizes[index]
 }
 
 func (pp *PartialPiece) Set(offset int, data []byte) error {
