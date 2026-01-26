@@ -9,13 +9,12 @@ import (
 
 	. "github.com/chrispritchard/gotorrent/internal/bitfields"
 	. "github.com/chrispritchard/gotorrent/internal/messaging"
-	"github.com/chrispritchard/gotorrent/internal/torrent"
 	"github.com/chrispritchard/gotorrent/internal/tracker"
 )
 
 var conn_timeout = 5 * time.Second
 
-func Handshake(metadata torrent.TorrentMetadata, tracker_response tracker.TrackerResponse, peer tracker.PeerInfo) (net.Conn, error) {
+func handshake(info_hash, local_id []byte, peer tracker.PeerInfo) (net.Conn, error) {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", peer.IP, peer.Port), conn_timeout)
 	if err != nil {
 		return nil, err
@@ -31,10 +30,10 @@ func Handshake(metadata torrent.TorrentMetadata, tracker_response tracker.Tracke
 	copy(to_send[20:28], []byte{0, 0, 0, 0, 0, 0, 0, 0})
 
 	// info hash
-	copy(to_send[28:48], metadata.InfoHash[:])
+	copy(to_send[28:48], info_hash)
 
 	// peer id
-	copy(to_send[48:68], tracker_response.LocalID)
+	copy(to_send[48:68], local_id)
 
 	// send to peer
 	n, err := conn.Write(to_send)
@@ -58,7 +57,7 @@ func Handshake(metadata torrent.TorrentMetadata, tracker_response tracker.Tracke
 	}
 
 	// info hash
-	if !bytes.Equal(received[28:48], metadata.InfoHash[:]) {
+	if !bytes.Equal(received[28:48], info_hash) {
 		return nil, fmt.Errorf("invalid info hash in response")
 	}
 
@@ -70,22 +69,22 @@ func Handshake(metadata torrent.TorrentMetadata, tracker_response tracker.Tracke
 	return conn, nil
 }
 
-func ExchangeBitfields(conn net.Conn, local BitField) (remote BitField, err error) {
+func exchange_bitfields(conn net.Conn, local BitField) (remote BitField, err error) {
 	err = SendMessage(conn, MSG_BITFIELD, local.Data)
 	if err != nil {
 		return
 	}
 
-	kind, data, err := ReceiveMessage(conn)
+	received, err := ReceiveMessage(conn)
 	if err != nil {
 		return
 	}
-	if kind != MSG_BITFIELD {
-		err = fmt.Errorf("expected a bitfield response message from peer, got %d", kind)
+	if received.Kind != MSG_BITFIELD {
+		err = fmt.Errorf("expected a bitfield response message from peer, got %d", received.Kind)
 		return
 	}
 
-	remote = BitField{Data: data}
+	remote = BitField{Data: received.Data}
 	if len(local.Data) != len(remote.Data) {
 		err = fmt.Errorf("remote bitfield has a different length (%d) than local bitfield (%d)", len(remote.Data), len(local.Data))
 	}
@@ -93,18 +92,18 @@ func ExchangeBitfields(conn net.Conn, local BitField) (remote BitField, err erro
 	return
 }
 
-func SendInterested(conn net.Conn) (err error) {
+func send_interested(conn net.Conn) (err error) {
 	err = SendMessage(conn, MSG_INTERESTED, []byte{})
 	if err != nil {
 		return
 	}
 
-	kind, _, err := ReceiveMessage(conn)
+	received, err := ReceiveMessage(conn)
 	if err != nil {
 		return
 	}
-	if kind != MSG_UNCHOKE {
-		err = fmt.Errorf("expected a unchoke response message from peer, got %d", kind)
+	if received.Kind != MSG_UNCHOKE {
+		err = fmt.Errorf("expected a unchoke response message from peer, got %d", received.Kind)
 		return
 	}
 

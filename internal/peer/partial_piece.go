@@ -8,6 +8,8 @@ import (
 	"os"
 )
 
+var BLOCK_SIZE = 1 << 14
+
 type PartialPiece struct {
 	hash        string
 	offset      int

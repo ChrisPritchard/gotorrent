@@ -109,15 +109,15 @@ func TestReceiveMessage(t *testing.T) {
 			server.Write(buf)
 		}()
 
-		kind, data, err := ReceiveMessage(client)
+		received, err := ReceiveMessage(client)
 		if err != nil {
 			t.Fatalf("ReceiveMessage() unexpected error: %v", err)
 		}
-		if kind != expectedKind {
-			t.Errorf("ReceiveMessage() kind = %v, want %v", kind, expectedKind)
+		if received.Kind != expectedKind {
+			t.Errorf("ReceiveMessage() kind = %v, want %v", received.Kind, expectedKind)
 		}
-		if !bytes.Equal(data, expectedData) {
-			t.Errorf("ReceiveMessage() data = %v, want %v", data, expectedData)
+		if !bytes.Equal(received.Data, expectedData) {
+			t.Errorf("ReceiveMessage() data = %v, want %v", received.Data, expectedData)
 		}
 	})
 }

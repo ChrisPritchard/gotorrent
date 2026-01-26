@@ -30,14 +30,17 @@ func (bf *BitField) Set(index uint) error {
 	return nil
 }
 
-func (bf *BitField) Get(index uint) (bool, error) {
+func (bf *BitField) Get(index int) bool {
+	if index < 0 {
+		return false
+	}
 	b := index / 8
-	if b >= uint(len(bf.Data)) {
-		return false, fmt.Errorf("index is out of range of valid bitfield values")
+	if b >= len(bf.Data) {
+		return false
 	}
 	m := index % 8
 	n := 1
 	n = n << m
 	res := bf.Data[b] & byte(n)
-	return res != 0, nil
+	return res != 0
 }

@@ -82,66 +82,58 @@ func TestBitfieldSet(t *testing.T) {
 
 func TestBitfieldGet(t *testing.T) {
 	tests := []struct {
-		name     string
-		state    []byte
-		index    uint
-		want     bool
-		want_err bool
+		name  string
+		state []byte
+		index int
+		want  bool
 	}{
 		{
-			name:     "single byte get true",
-			state:    []byte{0b00010000},
-			index:    4,
-			want:     true,
-			want_err: false,
+			name:  "single byte get true",
+			state: []byte{0b00010000},
+			index: 4,
+			want:  true,
 		},
 
 		{
-			name:     "single byte get false",
-			state:    []byte{0},
-			index:    4,
-			want:     false,
-			want_err: false,
+			name:  "single byte get false",
+			state: []byte{0},
+			index: 4,
+			want:  false,
 		},
 
 		{
-			name:     "single byte invalid 1",
-			state:    []byte{0},
-			index:    8,
-			want:     false,
-			want_err: true,
+			name:  "single byte invalid 1",
+			state: []byte{0},
+			index: 8,
+			want:  false,
 		},
 
 		{
-			name:     "single byte invalid 2",
-			state:    []byte{0},
-			index:    453,
-			want:     false,
-			want_err: true,
+			name:  "single byte invalid 2",
+			state: []byte{0},
+			index: 453,
+			want:  false,
 		},
 
 		{
-			name:     "multi byte get true",
-			state:    []byte{0, 0b00010000, 0},
-			index:    12,
-			want:     true,
-			want_err: false,
+			name:  "multi byte get true",
+			state: []byte{0, 0b00010000, 0},
+			index: 12,
+			want:  true,
 		},
 
 		{
-			name:     "multi byte get false",
-			state:    []byte{0, 0, 0},
-			index:    12,
-			want:     false,
-			want_err: false,
+			name:  "multi byte get false",
+			state: []byte{0, 0, 0},
+			index: 12,
+			want:  false,
 		},
 
 		{
-			name:     "multi byte invalid",
-			state:    []byte{0, 0, 0},
-			index:    153,
-			want:     false,
-			want_err: true,
+			name:  "multi byte invalid",
+			state: []byte{0, 0, 0},
+			index: 153,
+			want:  false,
 		},
 	}
 
@@ -150,13 +142,9 @@ func TestBitfieldGet(t *testing.T) {
 
 			bf := BitField{Data: tt.state}
 
-			r, err := bf.Get(tt.index)
-			if (err != nil) != tt.want_err {
-				t.Errorf("parse() error = %v, wantErr %v", err, tt.want_err)
-				return
-			}
+			r := bf.Get(tt.index)
 
-			if err == nil && r != tt.want {
+			if r != tt.want {
 				t.Errorf("parse() = %v, want %v", bf.Data, tt.want)
 			}
 		})
