@@ -118,7 +118,7 @@ func start_state_machine(metadata torrent.TorrentMetadata, tracker_info tracker.
 	for {
 		select {
 		case <-ticker.C:
-			print_status(partials, requests)
+			print_status(partials, &requests)
 		case received := <-received_channel:
 			piece_finished := handle_received(received, &requests, partials, out_file)
 			if piece_finished {
@@ -154,7 +154,7 @@ func handle_received(received messaging.Received, requests *peer.RequestMap, par
 	return
 }
 
-func print_status(partials []peer.PartialPiece, requests peer.RequestMap) {
+func print_status(partials []peer.PartialPiece, requests *peer.RequestMap) {
 	for i, p := range partials {
 		if !p.Valid() {
 			fmt.Printf("partial %d is invalid\n", i)
