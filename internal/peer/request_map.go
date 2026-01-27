@@ -28,9 +28,9 @@ func (r *RequestMap) Clear(piece, offset int) {
 	r.mutex.Lock()
 	p, ok := r.data[piece]
 	if ok {
-		delete(p, piece)
+		delete(p, offset)
 		if len(p) == 0 {
-			delete(r.data, offset)
+			delete(r.data, piece)
 		}
 	}
 	r.mutex.Unlock()

@@ -16,11 +16,11 @@ type PartialPiece struct {
 	blocks      []bool
 	block_sizes []int
 	data        []byte
-	done        bool
+	Done        bool
 }
 
 func CreatePartialPieces(hashes []string, piece_length, total_pieces_length int) []PartialPiece {
-	total_pieces := 100 // len(hashes)
+	total_pieces := 1 // len(hashes)
 	result := make([]PartialPiece, total_pieces)
 	last_size := total_pieces_length % piece_length
 	for i := range total_pieces {
@@ -50,7 +50,7 @@ func new_partial_piece(hash string, offset, full_length int) PartialPiece {
 		blocks:      make([]bool, block_count),
 		block_sizes: sizes,
 		data:        make([]byte, full_length),
-		done:        false,
+		Done:        false,
 	}
 }
 
@@ -108,7 +108,7 @@ func (pp *PartialPiece) WritePiece(file *os.File) error {
 		return err
 	}
 	_, err = file.Write(pp.data)
-	pp.done = true
+	pp.Done = true
 	clear(pp.data)
 	return err
 }

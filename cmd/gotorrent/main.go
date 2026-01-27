@@ -130,6 +130,7 @@ func start_state_machine(metadata torrent.TorrentMetadata, tracker_info tracker.
 				finished_pieces++
 				if finished_pieces == len(partials) {
 					fmt.Println("done")
+					print_status(partials, &requests)
 					return nil
 				}
 			}
@@ -161,7 +162,7 @@ func handle_received(received messaging.Received, requests *peer.RequestMap, par
 
 func print_status(partials []peer.PartialPiece, requests *peer.RequestMap) {
 	for i, p := range partials {
-		if !p.Valid() {
+		if !p.Done && !p.Valid() {
 			fmt.Printf("partial %d is invalid\n", i)
 			fmt.Printf("\tmissing: %v\n", p.Missing())
 		}
