@@ -102,11 +102,9 @@ func start_state_machine(metadata torrent.TorrentMetadata, tracker_info tracker.
 		defer p.Close()
 	}
 
-	// start requesting pieces
-
 	requests := peer.CreateEmptyRequestMap()
 	partials := peer.CreatePartialPieces(metadata.Pieces, metadata.PieceLength, metadata.Length)
-	go start_requesting_pieces(ctx, peers, partials, &requests)
+	start_requesting_pieces(ctx, peers, partials, &requests, error_channel)
 
 	keep_alive := time.NewTicker(2 * time.Minute)
 	ticker := time.NewTicker(5 * time.Second)
@@ -181,44 +179,48 @@ func print_status(partials []*peer.PartialPiece, requests *peer.RequestMap) {
 	fmt.Println()
 }
 
-func start_requesting_pieces(ctx context.Context, peers []*peer.PeerHandler, partials []*peer.PartialPiece, requests *peer.RequestMap) error {
-	count := 0
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-			if count == 5 {
-				time.Sleep(time.Second)
-				count = 0
-				continue
-			}
-			piece_index := rand.IntN(len(partials))
-			if partials[piece_index].Done {
-				continue
-			}
-			valid_peers := []*peer.PeerHandler{}
-			for i := range peers {
-				if peers[i].HasPiece(piece_index) {
-					valid_peers = append(valid_peers, peers[i])
+func start_requesting_pieces(ctx context.Context, peers []*peer.PeerHandler, partials []*peer.PartialPiece, requests *peer.RequestMap, error_channel chan<- error) {
+	go func() {
+		count := 0
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				if count == 5 {
+					time.Sleep(time.Second)
+					count = 0
+					continue
 				}
-			}
-			if len(valid_peers) == 0 {
-				return fmt.Errorf("no peer has piece %d", piece_index)
-			}
-			peer_index := rand.IntN(len(valid_peers))
-			block_offset := partials[piece_index].Missing()[0]
+				piece_index := rand.IntN(len(partials))
+				if partials[piece_index].Done {
+					continue
+				}
+				valid_peers := []*peer.PeerHandler{}
+				for i := range peers {
+					if peers[i].HasPiece(piece_index) {
+						valid_peers = append(valid_peers, peers[i])
+					}
+				}
+				if len(valid_peers) == 0 {
+					error_channel <- fmt.Errorf("no peer has piece %d", piece_index)
+					return
+				}
+				peer_index := rand.IntN(len(valid_peers))
+				block_offset := partials[piece_index].Missing()[0]
 
-			err := peers[peer_index].RequestPieceBlock(piece_index, block_offset, partials[piece_index].BlockSize(block_offset))
-			if err != nil {
-				return err
-			}
+				err := peers[peer_index].RequestPieceBlock(piece_index, block_offset, partials[piece_index].BlockSize(block_offset))
+				if err != nil {
+					error_channel <- err
+					return
+				}
 
-			requests.Set(piece_index, block_offset)
-			fmt.Printf("requested block offset %d of piece %d\n", block_offset, piece_index)
-			count++
+				requests.Set(piece_index, block_offset)
+				fmt.Printf("requested block offset %d of piece %d\n", block_offset, piece_index)
+				count++
+			}
 		}
-	}
+	}()
 }
 
 func connect_to_peers(metadata torrent.TorrentMetadata, tracker_response tracker.TrackerResponse, local_bitfield bitfields.BitField) []*peer.PeerHandler {

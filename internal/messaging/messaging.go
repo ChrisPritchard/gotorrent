@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"time"
 )
 
 func SendMessage(conn net.Conn, kind PeerMessageType, data []byte) error {
@@ -15,6 +16,10 @@ func SendMessage(conn net.Conn, kind PeerMessageType, data []byte) error {
 
 	to_send[4] = byte(kind)
 	copy(to_send[5:], data)
+
+	deadline := time.Now().Add(5 * time.Second)
+	conn.SetWriteDeadline(deadline)
+	defer conn.SetWriteDeadline(time.Time{}) // Reset
 
 	n, err := conn.Write(to_send)
 	if err != nil {
