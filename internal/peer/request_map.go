@@ -15,17 +15,18 @@ func CreateEmptyRequestMap() RequestMap {
 
 func (r *RequestMap) Set(piece, offset int) {
 	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	if e, ok := r.data[piece]; ok {
 		e[offset] = struct{}{}
 	} else {
 		r.data[piece] = map[int]struct{}{}
 		r.data[piece][offset] = struct{}{}
 	}
-	r.mutex.Unlock()
 }
 
 func (r *RequestMap) Has(piece, offset int) bool {
 	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	e, ok := r.data[piece]
 	if !ok {
 		return false
@@ -36,6 +37,7 @@ func (r *RequestMap) Has(piece, offset int) bool {
 
 func (r *RequestMap) Delete(piece, offset int) {
 	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	p, ok := r.data[piece]
 	if ok {
 		delete(p, offset)
@@ -43,7 +45,6 @@ func (r *RequestMap) Delete(piece, offset int) {
 			delete(r.data, piece)
 		}
 	}
-	r.mutex.Unlock()
 }
 
 func (r *RequestMap) Pieces() map[int][]int {
