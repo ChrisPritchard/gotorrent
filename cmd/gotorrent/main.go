@@ -201,7 +201,7 @@ func start_requesting_pieces(ctx context.Context, peers []*peer.PeerHandler, par
 				return
 			default:
 				if count == 5 {
-					time.Sleep(100 * time.Millisecond)
+					time.Sleep(50 * time.Millisecond)
 					count = 0
 					continue
 				}
