@@ -1,7 +1,6 @@
 package messaging
 
 import (
-	"bufio"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -32,33 +31,30 @@ func SendMessage(conn net.Conn, kind PeerMessageType, data []byte) error {
 }
 
 func ReceiveMessage(conn net.Conn) (Received, error) {
-	reader := bufio.NewReader(conn)
+
+	deadline := time.Now().Add(10 * time.Second)
+	conn.SetReadDeadline(deadline)
+	defer conn.SetReadDeadline(time.Time{})
 
 	length_buffer := make([]byte, 4)
 	var length uint32
 	for {
-		n, err := reader.Read(length_buffer)
+		_, err := io.ReadFull(conn, length_buffer)
 		if err != nil {
 			return nil_received, err
 		}
-		if n == 0 {
-			// keep_alive received
-			continue
-		}
-		if n == 4 {
-			length = binary.BigEndian.Uint32(length_buffer)
+		length = binary.BigEndian.Uint32(length_buffer)
+		if length == 0 {
+			continue // keep-alive, keep listening
+		} else {
 			break
 		}
-		return nil_received, fmt.Errorf("unrecognised bytes received, length %d: %x", n, length_buffer[:n])
 	}
 
 	received := make([]byte, length)
-	n, err := io.ReadFull(reader, received)
+	_, err := io.ReadFull(conn, received)
 	if err != nil {
 		return nil_received, err
-	}
-	if n != int(length) {
-		return nil_received, fmt.Errorf("was expecting %d bytes, but only received %d", length, n)
 	}
 
 	kind := PeerMessageType(received[0])

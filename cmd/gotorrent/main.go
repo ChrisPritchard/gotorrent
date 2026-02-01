@@ -137,7 +137,10 @@ func start_state_machine(metadata torrent.TorrentMetadata, tracker_info tracker.
 				p.SendKeepAlive()
 			}
 		case received := <-received_channel:
-			piece_finished := handle_received(received, &requests, peers, partials, out_file)
+			piece_finished, err := handle_received(received, &requests, peers, partials, out_file)
+			if err != nil {
+				return err
+			}
 			if piece_finished {
 				finished_pieces++
 				if finished_pieces == len(partials) {
@@ -153,17 +156,18 @@ func start_state_machine(metadata torrent.TorrentMetadata, tracker_info tracker.
 	}
 }
 
-func handle_received(received messaging.Received, requests *peer.RequestMap, peers []*peer.PeerHandler, partials []*peer.PartialPiece, out_file *os.File) (piece_finished bool) {
+func handle_received(received messaging.Received, requests *peer.RequestMap, peers []*peer.PeerHandler, partials []*peer.PartialPiece, out_file *os.File) (piece_finished bool, err error) {
 	piece_finished = false
 	if received.Kind == messaging.MSG_PIECE {
 		index, begin, piece := received.AsPiece()
 		requests.Delete(index, begin)
 		for i := range peers {
-			peers[i].CancelRequest(index, begin, len(piece)) // todo error handle
+			err = peers[i].CancelRequest(index, begin, len(piece))
+			return
 		}
 
 		partials[index].Set(int(begin), piece)
-		fmt.Printf("piece %d block received\n", index)
+		fmt.Printf("piece %d block offset %d received\n", index, begin)
 
 		if partials[index].Valid() {
 			partials[index].WritePiece(out_file)
@@ -171,7 +175,8 @@ func handle_received(received messaging.Received, requests *peer.RequestMap, pee
 			fmt.Printf("piece %d finished\n", index)
 
 			for i := range peers {
-				peers[i].SendHave(index) // todo error handle
+				err = peers[i].SendHave(index)
+				return
 			}
 		}
 	} else {
@@ -181,17 +186,17 @@ func handle_received(received messaging.Received, requests *peer.RequestMap, pee
 }
 
 func print_status(partials []*peer.PartialPiece, requests *peer.RequestMap) {
-	for i, p := range partials {
-		if !p.Done && !p.Valid() {
-			fmt.Printf("partial %d is invalid\n", i)
-			fmt.Printf("\tmissing: %v\n", p.Missing())
-		}
-	}
+	// for i, p := range partials {
+	// 	if !p.Done && !p.Valid() {
+	// 		fmt.Printf("partial %d is invalid\n", i)
+	// 		fmt.Printf("\tmissing: %v\n", p.Missing())
+	// 	}
+	// }
 	fmt.Printf("requested:\n")
 	for k, v := range requests.Pieces() {
 		var indices strings.Builder
 		for _, k2 := range v {
-			indices.WriteString(strconv.Itoa(k2) + " ")
+			indices.WriteString(strconv.Itoa(k2+1) + " ")
 		}
 		fmt.Printf("\t%d: %s\n", k, indices.String())
 	}
@@ -233,7 +238,7 @@ func start_requesting_pieces(ctx context.Context, peers []*peer.PeerHandler, par
 				}
 
 				requests.Set(piece_index, block_offset)
-				fmt.Printf("requested block %d/%d of piece %d from peer %s\n", block_index+1, partial.Length(), piece_index, valid_peer.Id)
+				fmt.Printf("requested block %d/%d (offset %d) of piece %d from peer %s\n", block_index+1, partial.Length(), block_offset, piece_index, valid_peer.Id)
 			}
 		}
 	}()

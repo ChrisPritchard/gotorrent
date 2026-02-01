@@ -92,20 +92,20 @@ func exchange_bitfields(conn net.Conn, local BitField) (remote BitField, err err
 	return
 }
 
-func send_interested(conn net.Conn) (err error) {
-	err = SendMessage(conn, MSG_INTERESTED, []byte{})
-	if err != nil {
-		return
-	}
+func send_interested(conn net.Conn) error {
+	return SendMessage(conn, MSG_INTERESTED, []byte{})
+}
 
+func receive_unchoked(conn net.Conn) error {
 	received, err := ReceiveMessage(conn)
 	if err != nil {
-		return
-	}
-	if received.Kind != MSG_UNCHOKE {
-		err = fmt.Errorf("expected a unchoke response message from peer, got %d", received.Kind)
-		return
+		return err
 	}
 
-	return
+	if received.Kind != MSG_UNCHOKE {
+		err = fmt.Errorf("expected a unchoke response message from peer, got %d", received.Kind)
+		return err
+	}
+
+	return nil
 }

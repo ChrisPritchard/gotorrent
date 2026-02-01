@@ -34,6 +34,11 @@ func ConnectToPeer(peer tracker.PeerInfo, info_hash, local_id []byte, local_bitf
 		return nil, err
 	}
 
+	err = receive_unchoked(conn)
+	if err != nil {
+		return nil, err
+	}
+
 	handler := PeerHandler{peer.Id, field, conn, CreateEmptyRequestMap()}
 	return &handler, nil
 }
@@ -75,12 +80,11 @@ func (p *PeerHandler) StartReceiving(ctx context.Context, received_channnel chan
 				return
 			default:
 				received, err := messaging.ReceiveMessage(p.conn)
-				if received.Kind == messaging.MSG_PIECE {
-					index, begin, _ := received.AsPiece()
-					p.requests.Delete(index, begin)
-				}
 				if err != nil {
 					error_channel <- err
+				} else if received.Kind == messaging.MSG_PIECE {
+					index, begin, _ := received.AsPiece()
+					p.requests.Delete(index, begin)
 				} else {
 					received_channnel <- received
 				}
