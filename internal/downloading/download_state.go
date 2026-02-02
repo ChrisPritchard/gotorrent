@@ -12,7 +12,7 @@ import (
 	"github.com/chrispritchard/gotorrent/internal/torrent_files"
 )
 
-var PAUSE_BETWEEN_REQUESTS = 10 * time.Millisecond
+var PAUSE_BETWEEN_REQUESTS = 1 * time.Millisecond
 var REQUEST_MAX_AGE = 3 * time.Second
 
 type DownloadState struct {
@@ -31,6 +31,10 @@ func NewDownloadState(metadata torrent_files.TorrentMetadata, peers []*peer.Peer
 		peers:    peers,
 		mutex:    sync.Mutex{},
 	}
+}
+
+func (ds *DownloadState) is_done() bool {
+	return ds.complete == len(ds.partials)
 }
 
 func (ds *DownloadState) run_in_lock(action func() error) error {
@@ -71,7 +75,7 @@ func (ds *DownloadState) ReceiveBlock(index, begin int, piece []byte, out_file *
 	}
 
 	ds.complete++
-	if ds.complete == len(ds.partials) {
+	if ds.is_done() {
 		finished_channel <- 1
 	}
 
@@ -85,6 +89,9 @@ func (ds *DownloadState) StartRequestingPieces(ctx context.Context, error_channe
 			case <-ctx.Done():
 				return
 			case <-time.After(PAUSE_BETWEEN_REQUESTS):
+				if ds.is_done() {
+					return
+				}
 				//default:
 				err := ds.run_in_lock(func() error {
 					possible_indices := []int{}
