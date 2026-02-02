@@ -1,4 +1,4 @@
-package torrent
+package torrent_files
 
 type TorrentMetadata struct {
 	Announcers  []string

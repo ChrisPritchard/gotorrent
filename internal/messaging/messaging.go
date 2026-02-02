@@ -37,13 +37,12 @@ func SendMessage(conn net.Conn, kind PeerMessageType, data []byte) error {
 
 func ReceiveMessage(conn net.Conn) (Received, error) {
 
-	deadline := time.Now().Add(TIMEOUT)
-	conn.SetReadDeadline(deadline)
 	defer conn.SetReadDeadline(time.Time{})
 
 	length_buffer := make([]byte, 4)
 	var length uint32
 	for {
+		conn.SetReadDeadline(time.Now().Add(TIMEOUT))
 		_, err := io.ReadFull(conn, length_buffer)
 		if err != nil {
 			if net_err, ok := err.(net.Error); ok && net_err.Timeout() {

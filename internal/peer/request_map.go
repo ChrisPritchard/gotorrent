@@ -34,7 +34,7 @@ func (r *RequestMap) Has(piece, offset int) bool {
 		return false
 	}
 	created, ok := e[offset]
-	return ok && time.Now().Sub(created) < r.max_piece_age
+	return ok && time.Since(created) < r.max_piece_age
 }
 
 func (r *RequestMap) Delete(piece, offset int) {
@@ -50,15 +50,24 @@ func (r *RequestMap) Delete(piece, offset int) {
 }
 
 func (r *RequestMap) Pieces() map[int][]int {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
 	result := map[int][]int{}
 	for k, v := range r.data {
 		var indices []int
 		for k2, created := range v {
-			if time.Now().Sub(created) < r.max_piece_age {
+			if time.Since(created) < r.max_piece_age {
 				indices = append(indices, k2)
+			} else {
+				delete(v, k2)
 			}
 		}
-		result[k] = indices
+		if len(indices) == 0 {
+			delete(r.data, k)
+		} else {
+			result[k] = indices
+		}
 	}
 	return result
 }

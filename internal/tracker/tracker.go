@@ -10,14 +10,14 @@ import (
 	"net/url"
 
 	"github.com/chrispritchard/gotorrent/internal/bencode"
-	"github.com/chrispritchard/gotorrent/internal/torrent"
+	. "github.com/chrispritchard/gotorrent/internal/torrent_files"
 )
 
 func escape(data []byte) string {
 	return url.QueryEscape(string(data))
 }
 
-func CallTracker(metadata torrent.TorrentMetadata) (TrackerResponse, error) {
+func CallTracker(metadata TorrentMetadata) (TrackerResponse, error) {
 	id := make([]byte, 20)
 	_, err := rand.Read(id)
 	if err != nil {

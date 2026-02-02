@@ -110,12 +110,6 @@ func start_state_machine(metadata torrent.TorrentMetadata, tracker_info tracker.
 		return fmt.Errorf("failed to connect to a peer")
 	}
 
-	// rate_limit := 2
-	// pipeline := make(chan int, rate_limit) // rate-limiting requests to received
-	// for range rate_limit {
-	// 	pipeline <- 1
-	// }
-
 	for _, p := range peers {
 		p.StartReceiving(ctx, received_channel, error_channel)
 		defer p.Close()
@@ -190,12 +184,12 @@ func handle_received(received messaging.Received, requests *peer.RequestMap, pee
 }
 
 func print_status(partials []*peer.PartialPiece, requests *peer.RequestMap) {
-	// for i, p := range partials {
-	// 	if !p.Done && !p.Valid() {
-	// 		fmt.Printf("partial %d is invalid\n", i)
-	// 		fmt.Printf("\tmissing: %v\n", p.Missing())
-	// 	}
-	// }
+	for i, p := range partials {
+		if !p.Done && !p.Valid() {
+			fmt.Printf("partial %d is invalid\n", i)
+			fmt.Printf("\tmissing: %v\n", p.Missing())
+		}
+	}
 	fmt.Printf("requested:\n")
 	for k, v := range requests.Pieces() {
 		var indices strings.Builder
@@ -210,15 +204,26 @@ func print_status(partials []*peer.PartialPiece, requests *peer.RequestMap) {
 var PAUSE = 10 * time.Millisecond
 
 func start_requesting_pieces(ctx context.Context, peers []*peer.PeerHandler, partials []*peer.PartialPiece, requests *peer.RequestMap, error_channel chan<- error) {
+	unfinished := make([]int, len(partials))
+	for i := range partials {
+		unfinished[i] = i
+	}
+
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(PAUSE):
-				piece_index := rand.IntN(len(partials))
+			//case <-time.After(PAUSE):
+			default:
+				if len(unfinished) == 0 {
+					return
+				}
+				unfinished_index := rand.IntN(len(unfinished))
+				piece_index := unfinished[unfinished_index]
 				partial := partials[piece_index]
 				if partial.Done {
+					unfinished = append(unfinished[:unfinished_index], unfinished[unfinished_index+1:]...)
 					continue
 				}
 				valid_peers := []*peer.PeerHandler{}
@@ -244,7 +249,7 @@ func start_requesting_pieces(ctx context.Context, peers []*peer.PeerHandler, par
 				}
 
 				requests.Set(piece_index, block_offset)
-				//fmt.Printf("requested block %d/%d (offset %d) of piece %d from peer %s\n", block_index+1, partial.Length(), block_offset, piece_index, valid_peer.Id)
+				fmt.Printf("requested block %d/%d (offset %d) of piece %d from peer %s\n", block_index+1, partial.Length(), block_offset, piece_index, valid_peer.Id)
 			}
 		}
 	}()
