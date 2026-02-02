@@ -2,25 +2,27 @@ package peer
 
 import (
 	"sync"
+	"time"
 )
 
 type RequestMap struct {
-	data  map[int]map[int]struct{}
-	mutex sync.Mutex
+	data          map[int]map[int]time.Time
+	max_piece_age time.Duration
+	mutex         sync.Mutex
 }
 
-func CreateEmptyRequestMap() RequestMap {
-	return RequestMap{make(map[int]map[int]struct{}), sync.Mutex{}}
+func CreateEmptyRequestMap(max_piece_age time.Duration) RequestMap {
+	return RequestMap{make(map[int]map[int]time.Time), max_piece_age, sync.Mutex{}}
 }
 
 func (r *RequestMap) Set(piece, offset int) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	if e, ok := r.data[piece]; ok {
-		e[offset] = struct{}{}
+		e[offset] = time.Now()
 	} else {
-		r.data[piece] = map[int]struct{}{}
-		r.data[piece][offset] = struct{}{}
+		r.data[piece] = map[int]time.Time{}
+		r.data[piece][offset] = time.Now()
 	}
 }
 
@@ -31,8 +33,8 @@ func (r *RequestMap) Has(piece, offset int) bool {
 	if !ok {
 		return false
 	}
-	_, ok = e[offset]
-	return ok
+	created, ok := e[offset]
+	return ok && time.Now().Sub(created) < r.max_piece_age
 }
 
 func (r *RequestMap) Delete(piece, offset int) {
@@ -51,8 +53,10 @@ func (r *RequestMap) Pieces() map[int][]int {
 	result := map[int][]int{}
 	for k, v := range r.data {
 		var indices []int
-		for k2 := range v {
-			indices = append(indices, k2)
+		for k2, created := range v {
+			if time.Now().Sub(created) < r.max_piece_age {
+				indices = append(indices, k2)
+			}
 		}
 		result[k] = indices
 	}

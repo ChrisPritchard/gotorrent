@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+var TIMEOUT = 500 * time.Millisecond
+
 func SendMessage(conn net.Conn, kind PeerMessageType, data []byte) error {
 	length := len(data) + 1           // 1 for the message type
 	to_send := make([]byte, 4+length) // first four bytes are where we put the length
@@ -16,12 +18,15 @@ func SendMessage(conn net.Conn, kind PeerMessageType, data []byte) error {
 	to_send[4] = byte(kind)
 	copy(to_send[5:], data)
 
-	deadline := time.Now().Add(5 * time.Second)
-	conn.SetWriteDeadline(deadline)
-	defer conn.SetWriteDeadline(time.Time{})
+	// deadline := time.Now().Add(TIMEOUT)
+	// conn.SetWriteDeadline(deadline)
+	// defer conn.SetWriteDeadline(time.Time{})
 
 	n, err := conn.Write(to_send)
 	if err != nil {
+		// if net_err, ok := err.(net.Error); ok && net_err.Timeout() && retry_on_timeout {
+		// 	return SendMessage(conn, kind, data, retry_on_timeout)
+		// }
 		return err
 	}
 	if n != len(to_send) {
@@ -32,7 +37,7 @@ func SendMessage(conn net.Conn, kind PeerMessageType, data []byte) error {
 
 func ReceiveMessage(conn net.Conn) (Received, error) {
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(TIMEOUT)
 	conn.SetReadDeadline(deadline)
 	defer conn.SetReadDeadline(time.Time{})
 
@@ -41,6 +46,9 @@ func ReceiveMessage(conn net.Conn) (Received, error) {
 	for {
 		_, err := io.ReadFull(conn, length_buffer)
 		if err != nil {
+			if net_err, ok := err.(net.Error); ok && net_err.Timeout() {
+				continue
+			}
 			return nil_received, err
 		}
 		length = binary.BigEndian.Uint32(length_buffer)

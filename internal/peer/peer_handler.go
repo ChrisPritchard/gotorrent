@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"time"
 
 	. "github.com/chrispritchard/gotorrent/internal/bitfields"
 	"github.com/chrispritchard/gotorrent/internal/messaging"
@@ -39,7 +40,7 @@ func ConnectToPeer(peer tracker.PeerInfo, info_hash, local_id []byte, local_bitf
 		return nil, err
 	}
 
-	handler := PeerHandler{peer.Id, field, conn, CreateEmptyRequestMap()}
+	handler := PeerHandler{peer.Id, field, conn, CreateEmptyRequestMap(3 * time.Second)}
 	return &handler, nil
 }
 

@@ -110,19 +110,20 @@ func start_state_machine(metadata torrent.TorrentMetadata, tracker_info tracker.
 		return fmt.Errorf("failed to connect to a peer")
 	}
 
-	pipeline := make(chan int, 20) // rate-limiting requests to received
-	for range 20 {
-		pipeline <- 1
-	}
+	// rate_limit := 2
+	// pipeline := make(chan int, rate_limit) // rate-limiting requests to received
+	// for range rate_limit {
+	// 	pipeline <- 1
+	// }
 
 	for _, p := range peers {
 		p.StartReceiving(ctx, received_channel, error_channel)
 		defer p.Close()
 	}
 
-	requests := peer.CreateEmptyRequestMap()
+	requests := peer.CreateEmptyRequestMap(3 * time.Second)
 	partials := peer.CreatePartialPieces(metadata.Pieces, metadata.PieceLength, metadata.Length)
-	start_requesting_pieces(ctx, peers, partials, &requests, error_channel, pipeline)
+	start_requesting_pieces(ctx, peers, partials, &requests, error_channel)
 
 	keep_alive := time.NewTicker(2 * time.Minute)
 	ticker := time.NewTicker(5 * time.Second)
@@ -149,12 +150,8 @@ func start_state_machine(metadata torrent.TorrentMetadata, tracker_info tracker.
 					return nil
 				}
 			}
-			pipeline <- 1
 		case err := <-error_channel:
-			fmt.Printf("received err: %v, adding to pipeline\n", err)
-			for range 20 {
-				pipeline <- 1
-			}
+			return err
 		}
 	}
 }
@@ -210,13 +207,15 @@ func print_status(partials []*peer.PartialPiece, requests *peer.RequestMap) {
 	fmt.Println()
 }
 
-func start_requesting_pieces(ctx context.Context, peers []*peer.PeerHandler, partials []*peer.PartialPiece, requests *peer.RequestMap, error_channel chan<- error, pipeline <-chan int) {
+var PAUSE = 10 * time.Millisecond
+
+func start_requesting_pieces(ctx context.Context, peers []*peer.PeerHandler, partials []*peer.PartialPiece, requests *peer.RequestMap, error_channel chan<- error) {
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-pipeline:
+			case <-time.After(PAUSE):
 				piece_index := rand.IntN(len(partials))
 				partial := partials[piece_index]
 				if partial.Done {
