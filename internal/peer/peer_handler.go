@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
-	"time"
 
 	. "github.com/chrispritchard/gotorrent/internal/bitfields"
 	"github.com/chrispritchard/gotorrent/internal/messaging"
@@ -16,7 +15,7 @@ type PeerHandler struct {
 	Id       string
 	bitfield BitField
 	conn     net.Conn
-	requests RequestMap
+	requests map[int]map[int]struct{}
 }
 
 func ConnectToPeer(peer tracker.PeerInfo, info_hash, local_id []byte, local_bitfield BitField) (*PeerHandler, error) {
@@ -40,8 +39,31 @@ func ConnectToPeer(peer tracker.PeerInfo, info_hash, local_id []byte, local_bitf
 		return nil, err
 	}
 
-	handler := PeerHandler{peer.Id, field, conn, CreateEmptyRequestMap(3 * time.Second)}
+	handler := PeerHandler{peer.Id, field, conn, map[int]map[int]struct{}{}}
 	return &handler, nil
+}
+
+func (p *PeerHandler) delete_request(index, begin int) bool {
+	if blocks, exists := p.requests[index]; exists {
+		if _, exists = blocks[begin]; exists {
+			delete(blocks, begin)
+			if len(blocks) == 0 {
+				delete(p.requests, index)
+			}
+			return true
+		}
+	}
+	return false
+}
+
+func (p *PeerHandler) set_request(index, begin int) {
+	if blocks, exists := p.requests[index]; exists {
+		blocks[begin] = struct{}{}
+	} else {
+		p.requests[index] = map[int]struct{}{
+			begin: struct{}{},
+		}
+	}
 }
 
 func (p *PeerHandler) HasPiece(index int) bool {
@@ -49,8 +71,7 @@ func (p *PeerHandler) HasPiece(index int) bool {
 }
 
 func (p *PeerHandler) CancelRequest(index, begin, length int) error {
-	if p.requests.Has(index, begin) {
-		p.requests.Delete(index, begin)
+	if p.delete_request(index, begin) {
 		to_send := make([]byte, 12)
 		binary.BigEndian.PutUint32(to_send[:4], uint32(index))
 		binary.BigEndian.PutUint32(to_send[4:8], uint32(begin))
@@ -64,7 +85,7 @@ func (p *PeerHandler) RequestPieceBlock(index, begin, length int) error {
 	if !p.HasPiece(index) {
 		return fmt.Errorf("peer %s does not have the requested piece with index %d", p.Id, index)
 	}
-	p.requests.Set(index, begin) // for later cancellation
+	p.set_request(index, begin) // for later cancellation
 
 	to_send := make([]byte, 12)
 	binary.BigEndian.PutUint32(to_send[:4], uint32(index))
@@ -88,7 +109,7 @@ func (p *PeerHandler) StartReceiving(ctx context.Context, received_channel chan<
 
 				if received.Kind == messaging.MSG_PIECE {
 					index, begin, _ := received.AsPiece()
-					p.requests.Delete(index, begin)
+					p.delete_request(index, begin)
 				}
 
 				received_channel <- received

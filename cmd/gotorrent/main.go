@@ -5,16 +5,14 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
-	"math/rand/v2"
 	"os"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/chrispritchard/gotorrent/internal/bitfields"
+	"github.com/chrispritchard/gotorrent/internal/downloading"
 	"github.com/chrispritchard/gotorrent/internal/messaging"
 	"github.com/chrispritchard/gotorrent/internal/peer"
-	"github.com/chrispritchard/gotorrent/internal/torrent"
+	. "github.com/chrispritchard/gotorrent/internal/torrent_files"
 	"github.com/chrispritchard/gotorrent/internal/tracker"
 	"github.com/chrispritchard/gotorrent/internal/util"
 )
@@ -64,14 +62,14 @@ func try_download(torrent_file_path string) error {
 	return start_state_machine(metadata, tracker_info, local_field, out_file)
 }
 
-func parse_torrent(torrent_file_path string) (torrent.TorrentMetadata, error) {
-	var nil_result torrent.TorrentMetadata
+func parse_torrent(torrent_file_path string) (TorrentMetadata, error) {
+	var nil_result TorrentMetadata
 	d, err := os.ReadFile(torrent_file_path)
 	if err != nil {
 		return nil_result, fmt.Errorf("unable to read file at path %s: %v", torrent_file_path, err)
 	}
 
-	torrent, err := torrent.ParseTorrentFile(d)
+	torrent, err := ParseTorrentFile(d)
 	if err != nil {
 		return nil_result, fmt.Errorf("unable to parse torrent file: %v", err)
 	}
@@ -79,11 +77,11 @@ func parse_torrent(torrent_file_path string) (torrent.TorrentMetadata, error) {
 	return torrent, nil
 }
 
-func get_local_bit_field(metadata torrent.TorrentMetadata) (bitfields.BitField, error) {
+func get_local_bit_field(metadata TorrentMetadata) (bitfields.BitField, error) {
 	return bitfields.CreateBlankBitfield(len(metadata.Pieces)), nil // TODO: evaluate existing file
 }
 
-func establish_outfile(metadata torrent.TorrentMetadata) (*os.File, error) {
+func establish_outfile(metadata TorrentMetadata) (*os.File, error) {
 	out_file, err := os.Create(metadata.Name) // assuming a single file with no directory info
 	if err != nil {
 		return nil, err
@@ -98,12 +96,13 @@ func establish_outfile(metadata torrent.TorrentMetadata) (*os.File, error) {
 	return out_file, nil
 }
 
-func start_state_machine(metadata torrent.TorrentMetadata, tracker_info tracker.TrackerResponse, local_field bitfields.BitField, out_file *os.File) error {
+func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerResponse, local_field bitfields.BitField, out_file *os.File) error {
 	ctx := context.Background()
 	defer ctx.Done()
 
 	received_channel := make(chan messaging.Received)
 	error_channel := make(chan error)
+	finished_channel := make(chan int)
 
 	peers := connect_to_peers(metadata, tracker_info, local_field)
 	if len(peers) == 0 {
@@ -115,34 +114,33 @@ func start_state_machine(metadata torrent.TorrentMetadata, tracker_info tracker.
 		defer p.Close()
 	}
 
-	requests := peer.CreateEmptyRequestMap(3 * time.Second)
-	partials := peer.CreatePartialPieces(metadata.Pieces, metadata.PieceLength, metadata.Length)
-	start_requesting_pieces(ctx, peers, partials, &requests, error_channel)
+	download_state := downloading.NewDownloadState(metadata, peers)
+	download_state.StartRequestingPieces(ctx, error_channel)
 
 	keep_alive := time.NewTicker(2 * time.Minute)
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	finished_pieces := 0
+
 	for {
 		select {
-		case <-ticker.C:
-			print_status(partials, &requests)
+		case <-finished_channel:
+			return nil // complete!
+		// case <-ticker.C:
+		// 	print_status(partials, &requests)
 		case <-keep_alive.C:
 			for _, p := range peers {
 				p.SendKeepAlive()
 			}
 		case received := <-received_channel:
-			piece_finished, err := handle_received(received, &requests, peers, partials, out_file)
-			if err != nil {
-				return err
-			}
-			if piece_finished {
-				finished_pieces++
-				if finished_pieces == len(partials) {
-					fmt.Println("done")
-					print_status(partials, &requests)
-					return nil
+			if received.Kind == messaging.MSG_PIECE {
+				index, begin, piece := received.AsPiece()
+				err := download_state.ReceiveBlock(index, begin, piece, out_file, finished_channel)
+				if err != nil {
+					return err
 				}
+				// TODO: check if all done
+			} else {
+				fmt.Printf("received an unhandled kind: %d\n", received.Kind)
 			}
 		case err := <-error_channel:
 			return err
@@ -150,112 +148,25 @@ func start_state_machine(metadata torrent.TorrentMetadata, tracker_info tracker.
 	}
 }
 
-func handle_received(received messaging.Received, requests *peer.RequestMap, peers []*peer.PeerHandler, partials []*peer.PartialPiece, out_file *os.File) (piece_finished bool, err error) {
-	piece_finished = false
-	if received.Kind == messaging.MSG_PIECE {
-		index, begin, piece := received.AsPiece()
-		requests.Delete(index, begin)
-		for i := range peers {
-			err = peers[i].CancelRequest(index, begin, len(piece))
-			if err != nil {
-				return false, err
-			}
-		}
+// func print_status(partials []*peer.PartialPiece, requests *peer.RequestMap) {
+// 	for i, p := range partials {
+// 		if !p.Done && !p.Valid() {
+// 			fmt.Printf("partial %d is invalid\n", i)
+// 			fmt.Printf("\tmissing: %v\n", p.Missing())
+// 		}
+// 	}
+// 	fmt.Printf("requested:\n")
+// 	for k, v := range requests.Pieces() {
+// 		var indices strings.Builder
+// 		for _, k2 := range v {
+// 			indices.WriteString(strconv.Itoa(k2+1) + " ")
+// 		}
+// 		fmt.Printf("\t%d: %s\n", k, indices.String())
+// 	}
+// 	fmt.Println()
+// }
 
-		partials[index].Set(int(begin), piece)
-		fmt.Printf("piece %d block offset %d received\n", index, begin)
-
-		if partials[index].Valid() {
-			partials[index].WritePiece(out_file)
-			piece_finished = true
-			fmt.Printf("piece %d finished\n", index)
-
-			for i := range peers {
-				err = peers[i].SendHave(index)
-				if err != nil {
-					return false, err
-				}
-			}
-		}
-	} else {
-		fmt.Printf("received an unhandled kind: %d\n", received.Kind)
-	}
-	return
-}
-
-func print_status(partials []*peer.PartialPiece, requests *peer.RequestMap) {
-	for i, p := range partials {
-		if !p.Done && !p.Valid() {
-			fmt.Printf("partial %d is invalid\n", i)
-			fmt.Printf("\tmissing: %v\n", p.Missing())
-		}
-	}
-	fmt.Printf("requested:\n")
-	for k, v := range requests.Pieces() {
-		var indices strings.Builder
-		for _, k2 := range v {
-			indices.WriteString(strconv.Itoa(k2+1) + " ")
-		}
-		fmt.Printf("\t%d: %s\n", k, indices.String())
-	}
-	fmt.Println()
-}
-
-var PAUSE = 10 * time.Millisecond
-
-func start_requesting_pieces(ctx context.Context, peers []*peer.PeerHandler, partials []*peer.PartialPiece, requests *peer.RequestMap, error_channel chan<- error) {
-	unfinished := make([]int, len(partials))
-	for i := range partials {
-		unfinished[i] = i
-	}
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			//case <-time.After(PAUSE):
-			default:
-				if len(unfinished) == 0 {
-					return
-				}
-				unfinished_index := rand.IntN(len(unfinished))
-				piece_index := unfinished[unfinished_index]
-				partial := partials[piece_index]
-				if partial.Done {
-					unfinished = append(unfinished[:unfinished_index], unfinished[unfinished_index+1:]...)
-					continue
-				}
-				valid_peers := []*peer.PeerHandler{}
-				for i := range peers {
-					if peers[i].HasPiece(piece_index) {
-						valid_peers = append(valid_peers, peers[i])
-					}
-				}
-				if len(valid_peers) == 0 {
-					error_channel <- fmt.Errorf("no peer has piece %d", piece_index)
-					continue
-				}
-				peer_index := rand.IntN(len(valid_peers))
-				valid_peer := valid_peers[peer_index]
-				block_index := partial.Missing()[0]
-				block_offset := block_index * peer.BLOCK_SIZE
-				block_size := partial.BlockSize(block_index)
-
-				err := valid_peer.RequestPieceBlock(piece_index, block_offset, block_size)
-				if err != nil {
-					error_channel <- err
-					continue
-				}
-
-				requests.Set(piece_index, block_offset)
-				fmt.Printf("requested block %d/%d (offset %d) of piece %d from peer %s\n", block_index+1, partial.Length(), block_offset, piece_index, valid_peer.Id)
-			}
-		}
-	}()
-}
-
-func connect_to_peers(metadata torrent.TorrentMetadata, tracker_response tracker.TrackerResponse, local_bitfield bitfields.BitField) []*peer.PeerHandler {
+func connect_to_peers(metadata TorrentMetadata, tracker_response tracker.TrackerResponse, local_bitfield bitfields.BitField) []*peer.PeerHandler {
 	ops := make([]util.Op[*peer.PeerHandler], len(tracker_response.Peers))
 	for i, p := range tracker_response.Peers {
 		local_p := p

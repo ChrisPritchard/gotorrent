@@ -1,4 +1,4 @@
-package peer
+package downloading
 
 import (
 	"crypto/sha1"
@@ -6,7 +6,8 @@ import (
 	"io"
 	"math"
 	"os"
-	"sync"
+
+	"github.com/chrispritchard/gotorrent/internal/torrent_files"
 )
 
 var BLOCK_SIZE = 1 << 14
@@ -18,19 +19,17 @@ type PartialPiece struct {
 	block_sizes []int
 	data        []byte
 	Done        bool
-	mutex       sync.Mutex
 }
 
-func CreatePartialPieces(hashes []string, piece_length, total_pieces_length int) []*PartialPiece {
-	total_pieces := len(hashes)
-	result := make([]*PartialPiece, total_pieces)
-	last_size := total_pieces_length % piece_length
-	for i := range total_pieces {
-		length := piece_length
-		if i == len(hashes)-1 && last_size != 0 {
+func CreatePartialPieces(metadata torrent_files.TorrentMetadata) []*PartialPiece {
+	result := make([]*PartialPiece, len(metadata.Pieces))
+	last_size := metadata.Length % metadata.PieceLength
+	for i := range len(metadata.Pieces) {
+		length := metadata.PieceLength
+		if i == len(metadata.Pieces)-1 && last_size != 0 {
 			length = last_size
 		}
-		result[i] = new_partial_piece(hashes[i], i*piece_length, length)
+		result[i] = new_partial_piece(metadata.Pieces[i], i*metadata.PieceLength, length)
 	}
 	return result
 }
@@ -53,7 +52,6 @@ func new_partial_piece(hash string, offset, full_length int) *PartialPiece {
 		block_sizes: sizes,
 		data:        make([]byte, full_length),
 		Done:        false,
-		mutex:       sync.Mutex{},
 	}
 }
 
@@ -67,8 +65,6 @@ func (pp *PartialPiece) BlockSize(index int) int {
 }
 
 func (pp *PartialPiece) Set(offset int, data []byte) error {
-	pp.mutex.Lock()
-	defer pp.mutex.Unlock()
 	block_index := offset / BLOCK_SIZE
 	if block_index < 0 || block_index >= len(pp.blocks) {
 		return fmt.Errorf("invalid block index, out of range")
@@ -86,8 +82,6 @@ func (pp *PartialPiece) Set(offset int, data []byte) error {
 }
 
 func (pp *PartialPiece) Valid() bool {
-	pp.mutex.Lock()
-	defer pp.mutex.Unlock()
 	for _, b := range pp.blocks {
 		if !b {
 			return false
@@ -99,8 +93,6 @@ func (pp *PartialPiece) Valid() bool {
 
 // Missing returns the index of missing blocks
 func (pp *PartialPiece) Missing() []int {
-	pp.mutex.Lock()
-	defer pp.mutex.Unlock()
 	missing := []int{}
 	for i, b := range pp.blocks {
 		if !b {
@@ -114,8 +106,6 @@ func (pp *PartialPiece) WritePiece(file *os.File) error {
 	if !pp.Valid() {
 		return fmt.Errorf("piece is not valid")
 	}
-	pp.mutex.Lock()
-	defer pp.mutex.Unlock()
 	_, err := file.Seek(int64(pp.offset), io.SeekStart)
 	if err != nil {
 		return err

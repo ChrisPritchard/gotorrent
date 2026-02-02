@@ -1,23 +1,19 @@
-package peer
+package downloading
 
 import (
-	"sync"
 	"time"
 )
 
 type RequestMap struct {
 	data          map[int]map[int]time.Time
 	max_piece_age time.Duration
-	mutex         sync.Mutex
 }
 
 func CreateEmptyRequestMap(max_piece_age time.Duration) RequestMap {
-	return RequestMap{make(map[int]map[int]time.Time), max_piece_age, sync.Mutex{}}
+	return RequestMap{make(map[int]map[int]time.Time), max_piece_age}
 }
 
 func (r *RequestMap) Set(piece, offset int) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
 	if e, ok := r.data[piece]; ok {
 		e[offset] = time.Now()
 	} else {
@@ -27,8 +23,6 @@ func (r *RequestMap) Set(piece, offset int) {
 }
 
 func (r *RequestMap) Has(piece, offset int) bool {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
 	e, ok := r.data[piece]
 	if !ok {
 		return false
@@ -38,8 +32,6 @@ func (r *RequestMap) Has(piece, offset int) bool {
 }
 
 func (r *RequestMap) Delete(piece, offset int) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
 	p, ok := r.data[piece]
 	if ok {
 		delete(p, offset)
@@ -50,9 +42,6 @@ func (r *RequestMap) Delete(piece, offset int) {
 }
 
 func (r *RequestMap) Pieces() map[int][]int {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
 	result := map[int][]int{}
 	for k, v := range r.data {
 		var indices []int
