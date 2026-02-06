@@ -20,21 +20,19 @@ type DownloadState struct {
 	partials []*PartialPiece
 	complete int
 	peers    []*peer.PeerHandler
+	file     *os.File
 	mutex    sync.Mutex
 }
 
-func NewDownloadState(metadata torrent_files.TorrentMetadata, peers []*peer.PeerHandler) *DownloadState {
+func NewDownloadState(metadata torrent_files.TorrentMetadata, peers []*peer.PeerHandler, file *os.File) *DownloadState {
 	return &DownloadState{
 		requests: CreateEmptyRequestMap(REQUEST_MAX_AGE),
 		partials: CreatePartialPieces(metadata),
 		complete: 0,
 		peers:    peers,
+		file:     file,
 		mutex:    sync.Mutex{},
 	}
-}
-
-func (ds *DownloadState) is_done() bool {
-	return ds.complete == len(ds.partials)
 }
 
 func (ds *DownloadState) run_in_lock(action func() error) error {
@@ -43,7 +41,7 @@ func (ds *DownloadState) run_in_lock(action func() error) error {
 	return action()
 }
 
-func (ds *DownloadState) ReceiveBlock(index, begin int, piece []byte, out_file *os.File, finished_channel chan<- int) error {
+func (ds *DownloadState) ReceiveBlock(index, begin int, piece []byte) (finished bool, err error) {
 	ds.mutex.Lock()
 	defer ds.mutex.Unlock()
 
@@ -51,7 +49,7 @@ func (ds *DownloadState) ReceiveBlock(index, begin int, piece []byte, out_file *
 	for _, p := range ds.peers {
 		err := p.CancelRequest(index, begin, len(piece))
 		if err != nil {
-			return err
+			return false, err
 		}
 	}
 
@@ -61,25 +59,25 @@ func (ds *DownloadState) ReceiveBlock(index, begin int, piece []byte, out_file *
 	fmt.Printf("piece %d block offset %d received\n", index, begin)
 
 	if !partial.Valid() {
-		return nil
+		return false, nil
 	}
 
-	partial.WritePiece(out_file)
+	partial.WritePiece(ds.file)
 	fmt.Printf("piece %d finished\n", index)
 
 	for _, p := range ds.peers {
 		err := p.SendHave(index)
 		if err != nil {
-			return err
+			return false, err
 		}
 	}
 
 	ds.complete++
-	if ds.is_done() {
-		finished_channel <- 1
+	if ds.complete == len(ds.partials) {
+		return true, nil
 	}
 
-	return nil
+	return false, nil
 }
 
 func (ds *DownloadState) StartRequestingPieces(ctx context.Context, error_channel chan<- error) {
@@ -89,10 +87,6 @@ func (ds *DownloadState) StartRequestingPieces(ctx context.Context, error_channe
 			case <-ctx.Done():
 				return
 			case <-time.After(PAUSE_BETWEEN_REQUESTS):
-				if ds.is_done() {
-					return
-				}
-				//default:
 				err := ds.run_in_lock(func() error {
 					possible_indices := []int{}
 					for i, p := range ds.partials {

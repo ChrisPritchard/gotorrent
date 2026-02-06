@@ -102,7 +102,6 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 
 	received_channel := make(chan messaging.Received)
 	error_channel := make(chan error)
-	finished_channel := make(chan int, 1)
 
 	peers := connect_to_peers(metadata, tracker_info, local_field)
 	if len(peers) == 0 {
@@ -114,7 +113,7 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 		defer p.Close()
 	}
 
-	download_state := downloading.NewDownloadState(metadata, peers)
+	download_state := downloading.NewDownloadState(metadata, peers, out_file)
 	download_state.StartRequestingPieces(ctx, error_channel)
 
 	keep_alive := time.NewTicker(2 * time.Minute)
@@ -123,10 +122,6 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 
 	for {
 		select {
-		case <-finished_channel:
-			return nil // complete!
-		// case <-ticker.C:
-		// 	print_status(partials, &requests)
 		case <-keep_alive.C:
 			for _, p := range peers {
 				p.SendKeepAlive()
@@ -134,11 +129,13 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 		case received := <-received_channel:
 			if received.Kind == messaging.MSG_PIECE {
 				index, begin, piece := received.AsPiece()
-				err := download_state.ReceiveBlock(index, begin, piece, out_file, finished_channel)
+				finished, err := download_state.ReceiveBlock(index, begin, piece)
 				if err != nil {
 					return err
 				}
-				// TODO: check if all done
+				if finished {
+					return nil // complete
+				}
 			} else {
 				fmt.Printf("received an unhandled kind: %d\n", received.Kind)
 			}
@@ -147,24 +144,6 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 		}
 	}
 }
-
-// func print_status(partials []*peer.PartialPiece, requests *peer.RequestMap) {
-// 	for i, p := range partials {
-// 		if !p.Done && !p.Valid() {
-// 			fmt.Printf("partial %d is invalid\n", i)
-// 			fmt.Printf("\tmissing: %v\n", p.Missing())
-// 		}
-// 	}
-// 	fmt.Printf("requested:\n")
-// 	for k, v := range requests.Pieces() {
-// 		var indices strings.Builder
-// 		for _, k2 := range v {
-// 			indices.WriteString(strconv.Itoa(k2+1) + " ")
-// 		}
-// 		fmt.Printf("\t%d: %s\n", k, indices.String())
-// 	}
-// 	fmt.Println()
-// }
 
 func connect_to_peers(metadata TorrentMetadata, tracker_response tracker.TrackerResponse, local_bitfield bitfields.BitField) []*peer.PeerHandler {
 	ops := make([]util.Op[*peer.PeerHandler], len(tracker_response.Peers))
