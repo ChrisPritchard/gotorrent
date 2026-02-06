@@ -1,4 +1,4 @@
-# Gotorrent
+# Gorrent
 
 Small Golang BitTorrent client.
 

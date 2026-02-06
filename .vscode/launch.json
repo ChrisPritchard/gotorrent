@@ -9,7 +9,7 @@
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${workspaceFolder}/cmd/gotorrent/main.go",
+            "program": "${workspaceFolder}/cmd/gorrent/main.go",
             "args": [],
             "env": {},
             "showLog": true

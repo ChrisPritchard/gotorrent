@@ -1,4 +1,4 @@
-module github.com/chrispritchard/gotorrent
+module github.com/chrispritchard/gorrent
 
 go 1.25.5
 

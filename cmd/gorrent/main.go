@@ -8,13 +8,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/chrispritchard/gotorrent/internal/bitfields"
-	"github.com/chrispritchard/gotorrent/internal/downloading"
-	"github.com/chrispritchard/gotorrent/internal/messaging"
-	"github.com/chrispritchard/gotorrent/internal/peer"
-	. "github.com/chrispritchard/gotorrent/internal/torrent_files"
-	"github.com/chrispritchard/gotorrent/internal/tracker"
-	"github.com/chrispritchard/gotorrent/internal/util"
+	"github.com/chrispritchard/gorrent/internal/bitfields"
+	"github.com/chrispritchard/gorrent/internal/downloading"
+	"github.com/chrispritchard/gorrent/internal/messaging"
+	"github.com/chrispritchard/gorrent/internal/peer"
+	. "github.com/chrispritchard/gorrent/internal/torrent_files"
+	"github.com/chrispritchard/gorrent/internal/tracker"
+	"github.com/chrispritchard/gorrent/internal/util"
 )
 
 func main() {

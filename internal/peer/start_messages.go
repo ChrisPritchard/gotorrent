@@ -7,9 +7,9 @@ import (
 	"net"
 	"time"
 
-	. "github.com/chrispritchard/gotorrent/internal/bitfields"
-	. "github.com/chrispritchard/gotorrent/internal/messaging"
-	"github.com/chrispritchard/gotorrent/internal/tracker"
+	. "github.com/chrispritchard/gorrent/internal/bitfields"
+	. "github.com/chrispritchard/gorrent/internal/messaging"
+	"github.com/chrispritchard/gorrent/internal/tracker"
 )
 
 var conn_timeout = 5 * time.Second

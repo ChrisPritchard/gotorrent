@@ -7,7 +7,7 @@ import (
 	"math"
 	"os"
 
-	"github.com/chrispritchard/gotorrent/internal/torrent_files"
+	"github.com/chrispritchard/gorrent/internal/torrent_files"
 )
 
 var BLOCK_SIZE = 1 << 14

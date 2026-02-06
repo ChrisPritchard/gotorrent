@@ -4,7 +4,7 @@ import (
 	"crypto/sha1"
 	"fmt"
 
-	"github.com/chrispritchard/gotorrent/internal/bencode"
+	"github.com/chrispritchard/gorrent/internal/bencode"
 )
 
 // Decodes a torrent file into the relevant properties for further downloading

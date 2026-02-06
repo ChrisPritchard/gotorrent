@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/chrispritchard/gotorrent/internal/bencode"
-	. "github.com/chrispritchard/gotorrent/internal/torrent_files"
+	"github.com/chrispritchard/gorrent/internal/bencode"
+	. "github.com/chrispritchard/gorrent/internal/torrent_files"
 )
 
 func escape(data []byte) string {

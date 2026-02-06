@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chrispritchard/gotorrent/internal/peer"
-	"github.com/chrispritchard/gotorrent/internal/torrent_files"
+	"github.com/chrispritchard/gorrent/internal/peer"
+	"github.com/chrispritchard/gorrent/internal/torrent_files"
 )
 
 var PAUSE_BETWEEN_REQUESTS = 1 * time.Millisecond
