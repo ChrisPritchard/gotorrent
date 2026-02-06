@@ -14,6 +14,7 @@ import (
 	. "github.com/chrispritchard/gorrent/internal/torrent_files"
 	"github.com/chrispritchard/gorrent/internal/tracker"
 	"github.com/chrispritchard/gorrent/internal/util"
+	"github.com/schollz/progressbar/v3"
 )
 
 var verbose bool
@@ -116,15 +117,32 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 	download_state := downloading.NewDownloadState(metadata, peers, out_file, verbose)
 	download_state.StartRequestingPieces(ctx, error_channel)
 
+	var bar *progressbar.ProgressBar
+	if !verbose {
+		bar = progressbar.NewOptions(len(metadata.Pieces),
+			progressbar.OptionSetDescription("Downloading"),
+			progressbar.OptionSetWriter(os.Stderr),
+			progressbar.OptionShowIts(),
+			progressbar.OptionSetWidth(40),
+			progressbar.OptionOnCompletion(func() {
+				fmt.Fprintln(os.Stderr)
+			}),
+		)
+	}
+
 	keep_alive := time.NewTicker(2 * time.Minute)
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
+	progress_ticker := time.NewTicker(250 * time.Millisecond)
+	defer progress_ticker.Stop()
 
 	for {
 		select {
 		case <-keep_alive.C:
 			for _, p := range peers {
 				p.SendKeepAlive()
+			}
+		case <-progress_ticker.C:
+			if bar != nil {
+				bar.Set(download_state.CompletedPieces())
 			}
 		case received := <-received_channel:
 			if received.Kind == messaging.MSG_PIECE {
@@ -137,6 +155,9 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 					fmt.Printf("Received block: index=%d begin=%d len=%d\n", index, begin, len(piece))
 				}
 				if finished {
+					if bar != nil {
+						bar.Set(len(metadata.Pieces))
+					}
 					return nil // complete
 				}
 			} else {

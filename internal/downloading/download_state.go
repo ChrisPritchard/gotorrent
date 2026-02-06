@@ -43,6 +43,12 @@ func (ds *DownloadState) run_in_lock(action func() error) error {
 	return action()
 }
 
+func (ds *DownloadState) CompletedPieces() int {
+	ds.mutex.Lock()
+	defer ds.mutex.Unlock()
+	return ds.complete
+}
+
 func (ds *DownloadState) ReceiveBlock(index, begin int, piece []byte) (finished bool, err error) {
 	ds.mutex.Lock()
 	defer ds.mutex.Unlock()
