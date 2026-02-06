@@ -20,6 +20,9 @@ import (
 var verbose bool
 
 func main() {
+	fmt.Print("\033[38;5;153m") // pale blue
+	defer fmt.Print("\033[0m")
+
 	flag.BoolVar(&verbose, "v", false, "enable verbose output")
 	flag.Parse()
 
