@@ -35,12 +35,11 @@ func main() {
 
 	//file := flag.Arg(0)
 
-	terminal.ToggleCursor(false)
-	defer terminal.ToggleCursor(true)
+	ba := terminal.BufferedArea{}
+	defer ba.Close()
 	for i := range 10000 {
 		prog_bar, _ := terminal.ProgressBar(i, 10000, 20, "p/h")
-		terminal.Clear(5)
-		terminal.Render([]string{
+		ba.Update([]string{
 			"this is a test of my terminal package",
 			"it shows lines in the terminal, hiding",
 			"the cursor. it also includes a progress bar:",

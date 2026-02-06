@@ -7,32 +7,71 @@ import (
 
 const (
 	// ANSI escape codes
-	escape     = "\x1b"
-	clearLine  = escape + "[2K"
-	cursorUp   = escape + "[1A"
-	cursorHide = escape + "[?25l"
-	cursorShow = escape + "[?25h"
+	escape         = "\x1b"
+	cursorNextLine = escape + "[1E"
+	cursorPrevLine = escape + "[1F"
+	cursorToCol    = escape + "[%dG" // 1 based
+	clearLine      = escape + "[2K"
+	cursorHide     = escape + "[?25l"
+	cursorShow     = escape + "[?25h"
 )
 
-func ToggleCursor(show bool) {
-	if show {
-		fmt.Print(cursorShow)
-	} else {
+type BufferedArea struct {
+	last          []string
+	cursor_hidden bool
+}
+
+func (ba *BufferedArea) Update(lines []string) {
+
+	if !ba.cursor_hidden {
 		fmt.Print(cursorHide)
+		ba.cursor_hidden = true
 	}
+
+	if ba.last == nil {
+		ba.last = lines
+		for _, l := range lines {
+			fmt.Println(l)
+		}
+		return
+	}
+
+	for range len(ba.last) {
+		fmt.Print(cursorPrevLine)
+	}
+
+	for i, l := range lines {
+		if i >= len(ba.last) {
+			fmt.Println(l)
+			continue
+		}
+
+		if l == ba.last[i] {
+			fmt.Printf(cursorNextLine)
+			continue
+		}
+
+		for j, c := range l {
+			if j < len(ba.last[i]) && rune(ba.last[i][j]) == c {
+				continue
+			}
+			fmt.Printf(cursorToCol, j+1)
+			fmt.Printf("%c", c)
+		}
+		fmt.Printf(cursorNextLine)
+	}
+
+	if len(lines) < len(ba.last) {
+		for range len(ba.last) - len(lines) {
+			fmt.Println(clearLine)
+		}
+	}
+
+	ba.last = lines
 }
 
-func Clear(line_count int) {
-	fmt.Print(cursorHide)
-	for range line_count {
-		fmt.Print(cursorUp, clearLine)
-	}
-}
-
-func Render(lines []string) {
-	for _, l := range lines {
-		fmt.Println(l)
-	}
+func (ba *BufferedArea) Close() {
+	fmt.Print(cursorShow)
 }
 
 func ProgressBar(current, max, line_length int, suffix string) (string, error) {
@@ -63,7 +102,7 @@ func ProgressBar(current, max, line_length int, suffix string) (string, error) {
 	line.WriteString("[")
 
 	for range current_progress {
-		line.WriteString("█")
+		line.WriteString("=")
 	}
 	for range segments - current_progress {
 		line.WriteString(" ")
