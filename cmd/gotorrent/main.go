@@ -102,7 +102,7 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 
 	received_channel := make(chan messaging.Received)
 	error_channel := make(chan error)
-	finished_channel := make(chan int)
+	finished_channel := make(chan int, 1)
 
 	peers := connect_to_peers(metadata, tracker_info, local_field)
 	if len(peers) == 0 {
