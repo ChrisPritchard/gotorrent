@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"sync"
 
 	. "github.com/chrispritchard/gorrent/internal/bitfields"
 	"github.com/chrispritchard/gorrent/internal/messaging"
@@ -15,6 +16,7 @@ type PeerHandler struct {
 	Id       string
 	bitfield BitField
 	conn     net.Conn
+	mutex    sync.Mutex
 	requests map[int]map[int]struct{}
 }
 
@@ -39,11 +41,13 @@ func ConnectToPeer(peer tracker.PeerInfo, info_hash, local_id []byte, local_bitf
 		return nil, err
 	}
 
-	handler := PeerHandler{peer.Id, field, conn, map[int]map[int]struct{}{}}
+	handler := PeerHandler{peer.Id, field, conn, sync.Mutex{}, map[int]map[int]struct{}{}}
 	return &handler, nil
 }
 
 func (p *PeerHandler) delete_request(index, begin int) bool {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
 	if blocks, exists := p.requests[index]; exists {
 		if _, exists = blocks[begin]; exists {
 			delete(blocks, begin)
@@ -57,6 +61,8 @@ func (p *PeerHandler) delete_request(index, begin int) bool {
 }
 
 func (p *PeerHandler) set_request(index, begin int) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
 	if blocks, exists := p.requests[index]; exists {
 		blocks[begin] = struct{}{}
 	} else {
