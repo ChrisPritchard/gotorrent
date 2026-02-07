@@ -7,7 +7,6 @@ import (
 )
 
 const (
-	// ANSI escape codes
 	escape         = "\x1b"
 	cursorNextLine = escape + "[1E"
 	cursorPrevLine = escape + "[1F"

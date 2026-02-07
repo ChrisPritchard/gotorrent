@@ -61,7 +61,7 @@ func (p *PeerHandler) set_request(index, begin int) {
 		blocks[begin] = struct{}{}
 	} else {
 		p.requests[index] = map[int]struct{}{
-			begin: struct{}{},
+			begin: {},
 		}
 	}
 }
