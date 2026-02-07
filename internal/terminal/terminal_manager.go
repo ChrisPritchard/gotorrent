@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -11,6 +12,7 @@ const (
 	cursorNextLine = escape + "[1E"
 	cursorPrevLine = escape + "[1F"
 	cursorToCol    = escape + "[%dG" // 1 based
+	clearToEnd     = escape + "[0K"
 	clearLine      = escape + "[2K"
 	cursorHide     = escape + "[?25l"
 	cursorShow     = escape + "[?25h"
@@ -51,13 +53,22 @@ func (ba *BufferedArea) Update(lines []string) {
 			continue
 		}
 
-		for j, c := range l {
-			if j < len(ba.last[i]) && rune(ba.last[i][j]) == c {
+		currentRunes := []rune(l)
+		lastRunes := []rune(ba.last[i])
+
+		for j, c := range currentRunes {
+			if j < len(lastRunes) && lastRunes[j] == c {
 				continue
 			}
 			fmt.Printf(cursorToCol, j+1)
 			fmt.Printf("%c", c)
 		}
+
+		if len(currentRunes) < len(lastRunes) {
+			fmt.Printf(cursorToCol, len(currentRunes)+1)
+			fmt.Print(clearToEnd)
+		}
+
 		fmt.Printf(cursorNextLine)
 	}
 
@@ -96,13 +107,13 @@ func ProgressBar(current, max, line_length int, suffix string) (string, error) {
 
 	segments := available - 2
 	progress_per_segment := max / segments
-	current_progress := current / progress_per_segment
+	current_progress := int(math.Ceil(float64(current) / float64(progress_per_segment)))
 
 	var line strings.Builder
 	line.WriteString("[")
 
 	for range current_progress {
-		line.WriteString("=")
+		line.WriteString("▓")
 	}
 	for range segments - current_progress {
 		line.WriteString(" ")

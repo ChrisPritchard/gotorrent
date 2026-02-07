@@ -15,7 +15,6 @@ import (
 	. "github.com/chrispritchard/gorrent/internal/torrent_files"
 	"github.com/chrispritchard/gorrent/internal/tracker"
 	"github.com/chrispritchard/gorrent/internal/util"
-	"github.com/schollz/progressbar/v3"
 )
 
 var verbose bool
@@ -33,27 +32,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	//file := flag.Arg(0)
+	file := flag.Arg(0)
 
-	ba := terminal.BufferedArea{}
-	defer ba.Close()
-	for i := range 10000 {
-		prog_bar, _ := terminal.ProgressBar(i, 10000, 20, "p/h")
-		ba.Update([]string{
-			"this is a test of my terminal package",
-			"it shows lines in the terminal, hiding",
-			"the cursor. it also includes a progress bar:",
-			"",
-			prog_bar,
-		})
+	err := try_download(file)
+	if err != nil {
+		fmt.Printf("unable to download via torrent file: %v\n", err)
+		os.Exit(1)
 	}
-
-	// err := try_download(file)
-	// if err != nil {
-	// 	fmt.Printf("unable to download via torrent file: %v\n", err)
-	// 	os.Exit(1)
-	// }
-	// fmt.Println("Download complete.")
+	fmt.Println("Download complete.")
 }
 
 func try_download(torrent_file_path string) error {
@@ -68,7 +54,7 @@ func try_download(torrent_file_path string) error {
 		return fmt.Errorf("failed to register with tracker: %v", err)
 	}
 
-	out_file, err := establish_outfile(metadata)
+	out_file, err := establish_outfile(metadata) // TODO confirm file name, handle multiple files
 	if err != nil {
 		return fmt.Errorf("failed to create/read out_file: %v", err)
 	}
@@ -134,22 +120,12 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 	download_state := downloading.NewDownloadState(metadata, peers, out_file, verbose)
 	download_state.StartRequestingPieces(ctx, error_channel)
 
-	var bar *progressbar.ProgressBar
-	if !verbose {
-		bar = progressbar.NewOptions(len(metadata.Pieces),
-			progressbar.OptionSetDescription("Downloading"),
-			progressbar.OptionSetWriter(os.Stderr),
-			progressbar.OptionShowIts(),
-			progressbar.OptionSetWidth(40),
-			progressbar.OptionOnCompletion(func() {
-				fmt.Fprintln(os.Stderr)
-			}),
-		)
-	}
-
 	keep_alive := time.NewTicker(2 * time.Minute)
 	progress_ticker := time.NewTicker(250 * time.Millisecond)
 	defer progress_ticker.Stop()
+
+	ba := &terminal.BufferedArea{}
+	defer ba.Close()
 
 	for {
 		select {
@@ -158,9 +134,7 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 				p.SendKeepAlive()
 			}
 		case <-progress_ticker.C:
-			if bar != nil {
-				bar.Set(download_state.CompletedPieces())
-			}
+			print_status(ba, metadata, len(peers), download_state.CompletedPieces(), verbose)
 		case received := <-received_channel:
 			if received.Kind == messaging.MSG_PIECE {
 				index, begin, piece := received.AsPiece()
@@ -172,9 +146,7 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 					fmt.Printf("Received block: index=%d begin=%d len=%d\n", index, begin, len(piece))
 				}
 				if finished {
-					if bar != nil {
-						bar.Set(len(metadata.Pieces))
-					}
+					print_status(ba, metadata, len(peers), download_state.CompletedPieces(), verbose)
 					return nil // complete
 				}
 			} else {
@@ -199,4 +171,21 @@ func connect_to_peers(metadata TorrentMetadata, tracker_response tracker.Tracker
 
 	conns, _ := util.Concurrent(ops, 20)
 	return conns
+}
+
+func print_status(ba *terminal.BufferedArea, metadata TorrentMetadata, connected_peers, finished_pieces int, verbose bool) {
+	if verbose {
+		return
+	}
+	total_pieces := len(metadata.Pieces)
+	max_width := len(fmt.Sprintf("%d", total_pieces))
+	piece_fraction := fmt.Sprintf("%*d/%*d complete", max_width, finished_pieces, max_width, total_pieces)
+
+	prog_bar, _ := terminal.ProgressBar(finished_pieces, total_pieces, 40, piece_fraction)
+	ba.Update([]string{
+		"name: " + metadata.Name,
+		fmt.Sprintf("peers: %d", connected_peers),
+		"progress:",
+		prog_bar,
+	})
 }
