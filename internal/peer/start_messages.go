@@ -69,7 +69,7 @@ func handshake(info_hash, local_id []byte, peer tracker.PeerInfo) (net.Conn, err
 	return conn, nil
 }
 
-func exchange_bitfields(conn net.Conn, local BitField) (remote BitField, err error) {
+func exchange_bitfields(conn net.Conn, local *BitField) (remote *BitField, err error) {
 	err = SendMessage(conn, MSG_BITFIELD, local.Data)
 	if err != nil {
 		return
@@ -84,7 +84,7 @@ func exchange_bitfields(conn net.Conn, local BitField) (remote BitField, err err
 		return
 	}
 
-	remote = BitField{Data: received.Data}
+	remote = &BitField{Data: received.Data}
 	if len(local.Data) != len(remote.Data) {
 		err = fmt.Errorf("remote bitfield has a different length (%d) than local bitfield (%d)", len(remote.Data), len(local.Data))
 	}

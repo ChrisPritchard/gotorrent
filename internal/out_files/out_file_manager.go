@@ -58,8 +58,8 @@ func (ofm *OutFileManager) Close() {
 	}
 }
 
-func (ofm *OutFileManager) WriteData(piece, offset int, data []byte) error {
-	data_start := (piece * ofm.piece_length) + offset
+func (ofm *OutFileManager) WritePiece(piece int, data []byte) error {
+	data_start := piece * ofm.piece_length
 	data_end := data_start + len(data)
 
 	for i, fi := range ofm.indices {

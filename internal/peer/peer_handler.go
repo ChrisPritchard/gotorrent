@@ -14,13 +14,13 @@ import (
 
 type PeerHandler struct {
 	Id       string
-	bitfield BitField
+	bitfield *BitField
 	conn     net.Conn
 	mutex    sync.Mutex
 	requests map[int]map[int]struct{}
 }
 
-func ConnectToPeer(peer tracker.PeerInfo, info_hash, local_id []byte, local_bitfield BitField) (*PeerHandler, error) {
+func ConnectToPeer(peer tracker.PeerInfo, info_hash, local_id []byte, local_bitfield *BitField) (*PeerHandler, error) {
 	conn, err := handshake(info_hash, local_id, peer)
 	if err != nil {
 		return nil, err

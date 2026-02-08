@@ -10,6 +10,7 @@ import (
 	"github.com/chrispritchard/gorrent/internal/bitfields"
 	"github.com/chrispritchard/gorrent/internal/downloading"
 	"github.com/chrispritchard/gorrent/internal/messaging"
+	outfiles "github.com/chrispritchard/gorrent/internal/out_files"
 	"github.com/chrispritchard/gorrent/internal/peer"
 	"github.com/chrispritchard/gorrent/internal/terminal"
 	. "github.com/chrispritchard/gorrent/internal/torrent_files"
@@ -49,18 +50,13 @@ func try_download(torrent_file_path string) error {
 		return fmt.Errorf("failed to register with tracker: %v", err)
 	}
 
-	local_field, err := get_local_bit_field(metadata)
+	out_files, err := outfiles.CreateOutFileManager(metadata, "")
 	if err != nil {
-		return fmt.Errorf("failed to register with tracker: %v", err)
+		return fmt.Errorf("failed to establish local files: %v", err)
 	}
+	defer out_files.Close()
 
-	out_file, err := establish_outfile(metadata) // TODO confirm file name, handle multiple files
-	if err != nil {
-		return fmt.Errorf("failed to create/read out_file: %v", err)
-	}
-	defer out_file.Close()
-
-	return start_state_machine(metadata, tracker_info, local_field, out_file)
+	return start_state_machine(metadata, tracker_info, out_files)
 }
 
 func parse_torrent(torrent_file_path string) (TorrentMetadata, error) {
@@ -78,33 +74,18 @@ func parse_torrent(torrent_file_path string) (TorrentMetadata, error) {
 	return torrent, nil
 }
 
-func get_local_bit_field(metadata TorrentMetadata) (bitfields.BitField, error) {
-	return bitfields.CreateBlankBitfield(len(metadata.Pieces)), nil // TODO: evaluate existing file
-}
-
-func establish_outfile(metadata TorrentMetadata) (*os.File, error) {
-	out_file, err := os.Create(metadata.Name) // assuming a single file with no directory info
-	if err != nil {
-		return nil, err
-	}
-
-	err = out_file.Truncate(int64(metadata.Length)) // create full size file
-	if err != nil {
-		out_file.Close()
-		return nil, err
-	}
-
-	return out_file, nil
-}
-
-func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerResponse, local_field bitfields.BitField, out_file *os.File) error {
+func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerResponse, out_file_manager *outfiles.OutFileManager) error {
 	ctx := context.Background()
 	defer ctx.Done()
 
 	received_channel := make(chan messaging.Received)
 	error_channel := make(chan error)
 
-	peers := connect_to_peers(metadata, tracker_info, local_field)
+	current_local_field, err := out_file_manager.Bitfield()
+	if err != nil {
+		return err
+	}
+	peers := connect_to_peers(metadata, tracker_info, current_local_field)
 	if len(peers) == 0 {
 		return fmt.Errorf("failed to connect to a peer")
 	}
@@ -117,7 +98,7 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 		defer p.Close()
 	}
 
-	download_state := downloading.NewDownloadState(metadata, peers, out_file, verbose)
+	download_state := downloading.NewDownloadState(metadata, peers, out_file_manager, verbose)
 	download_state.StartRequestingPieces(ctx, error_channel)
 
 	keep_alive := time.NewTicker(2 * time.Minute)
@@ -160,7 +141,7 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 	}
 }
 
-func connect_to_peers(metadata TorrentMetadata, tracker_response tracker.TrackerResponse, local_bitfield bitfields.BitField) []*peer.PeerHandler {
+func connect_to_peers(metadata TorrentMetadata, tracker_response tracker.TrackerResponse, local_bitfield *bitfields.BitField) []*peer.PeerHandler {
 	ops := make([]util.Op[*peer.PeerHandler], len(tracker_response.Peers))
 	for i, p := range tracker_response.Peers {
 		local_p := p

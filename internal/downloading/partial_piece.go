@@ -3,10 +3,9 @@ package downloading
 import (
 	"crypto/sha1"
 	"fmt"
-	"io"
 	"math"
-	"os"
 
+	outfiles "github.com/chrispritchard/gorrent/internal/out_files"
 	"github.com/chrispritchard/gorrent/internal/torrent_files"
 )
 
@@ -17,7 +16,7 @@ type PartialPiece struct {
 	offset      int
 	blocks      []bool
 	block_sizes []int
-	data        []byte
+	Data        []byte
 	Done        bool
 }
 
@@ -50,7 +49,7 @@ func new_partial_piece(hash string, offset, full_length int) *PartialPiece {
 		offset:      offset,
 		blocks:      make([]bool, block_count),
 		block_sizes: sizes,
-		data:        make([]byte, full_length),
+		Data:        make([]byte, full_length),
 		Done:        false,
 	}
 }
@@ -73,11 +72,11 @@ func (pp *PartialPiece) Set(offset int, data []byte) error {
 		return fmt.Errorf("data is too large for a single block")
 	}
 	pp.blocks[block_index] = true
-	target := pp.data[block_index*BLOCK_SIZE:]
+	target := pp.Data[block_index*BLOCK_SIZE:]
 	if len(target) < len(data) {
 		return fmt.Errorf("data is too large for the target location") // should only be possible for the last block if truncated
 	}
-	copy(pp.data[block_index*BLOCK_SIZE:], data)
+	copy(pp.Data[block_index*BLOCK_SIZE:], data)
 	return nil
 }
 
@@ -87,7 +86,7 @@ func (pp *PartialPiece) Valid() bool {
 			return false
 		}
 	}
-	hash := sha1.Sum(pp.data)
+	hash := sha1.Sum(pp.Data)
 	return string(hash[:]) == pp.hash
 }
 
@@ -102,16 +101,12 @@ func (pp *PartialPiece) Missing() []int {
 	return missing
 }
 
-func (pp *PartialPiece) WritePiece(file *os.File) error {
-	if !pp.Valid() {
-		return fmt.Errorf("piece is not valid")
-	}
-	_, err := file.Seek(int64(pp.offset), io.SeekStart)
+func (pp *PartialPiece) Conclude(piece_index int, out_files *outfiles.OutFileManager) error {
+	pp.Done = true
+	err := out_files.WritePiece(piece_index, pp.Data)
 	if err != nil {
 		return err
 	}
-	_, err = file.Write(pp.data)
-	pp.Done = true
-	clear(pp.data)
-	return err
+	clear(pp.Data)
+	return nil
 }

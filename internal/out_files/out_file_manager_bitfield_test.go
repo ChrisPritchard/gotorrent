@@ -319,8 +319,8 @@ func TestBitfield_ReadErrorHandling(t *testing.T) {
 	}
 }
 
-func TestBitfield_CompareWithWriteData(t *testing.T) {
-	// Test integration between WriteData and Bitfield
+func TestBitfield_CompareWithWritePiece(t *testing.T) {
+	// Test integration between WritePiece and Bitfield
 	fileSizes := []int{100}
 	pieceLength := 32
 	totalLength := 100
@@ -339,12 +339,12 @@ func TestBitfield_CompareWithWriteData(t *testing.T) {
 		t.Errorf("Initially should have 4 complete pieces, got %d", setBits1)
 	}
 
-	// Write some corrupted data to piece 1
+	// Write corrupted data to piece 1 (bytes 32-63)
 	corruptData := make([]byte, 32)
 	for i := range corruptData {
 		corruptData[i] = 0xAA
 	}
-	err = ofm.WriteData(0, 32, corruptData) // Overwrite piece 1
+	err = ofm.WritePiece(1, corruptData) // Overwrite piece 1
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,12 +359,12 @@ func TestBitfield_CompareWithWriteData(t *testing.T) {
 		t.Error("Piece 1 should not be complete after corrupt write")
 	}
 
-	// Write correct data back
+	// Write correct data back to piece 1
 	correctData := make([]byte, 32)
 	for i := range correctData {
 		correctData[i] = byte(32 + i)
 	}
-	err = ofm.WriteData(0, 32, correctData)
+	err = ofm.WritePiece(1, correctData)
 	if err != nil {
 		t.Fatal(err)
 	}

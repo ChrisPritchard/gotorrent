@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
-	"os"
 	"sync"
 	"time"
 
+	outfiles "github.com/chrispritchard/gorrent/internal/out_files"
 	"github.com/chrispritchard/gorrent/internal/peer"
 	"github.com/chrispritchard/gorrent/internal/torrent_files"
 )
@@ -16,24 +16,24 @@ var PAUSE_BETWEEN_REQUESTS = 1 * time.Millisecond
 var REQUEST_MAX_AGE = 3 * time.Second
 
 type DownloadState struct {
-	requests RequestMap
-	partials []*PartialPiece
-	complete int
-	peers    []*peer.PeerHandler
-	file     *os.File
-	verbose  bool
-	mutex    sync.Mutex
+	requests  RequestMap
+	partials  []*PartialPiece
+	complete  int
+	peers     []*peer.PeerHandler
+	out_files *outfiles.OutFileManager
+	verbose   bool
+	mutex     sync.Mutex
 }
 
-func NewDownloadState(metadata torrent_files.TorrentMetadata, peers []*peer.PeerHandler, file *os.File, verbose bool) *DownloadState {
+func NewDownloadState(metadata torrent_files.TorrentMetadata, peers []*peer.PeerHandler, out_file_manager *outfiles.OutFileManager, verbose bool) *DownloadState {
 	return &DownloadState{
-		requests: CreateEmptyRequestMap(REQUEST_MAX_AGE),
-		partials: CreatePartialPieces(metadata),
-		complete: 0,
-		peers:    peers,
-		file:     file,
-		verbose:  verbose,
-		mutex:    sync.Mutex{},
+		requests:  CreateEmptyRequestMap(REQUEST_MAX_AGE),
+		partials:  CreatePartialPieces(metadata),
+		complete:  0,
+		peers:     peers,
+		out_files: out_file_manager,
+		verbose:   verbose,
+		mutex:     sync.Mutex{},
 	}
 }
 
@@ -72,7 +72,10 @@ func (ds *DownloadState) ReceiveBlock(index, begin int, piece []byte) (finished 
 		return false, nil
 	}
 
-	partial.WritePiece(ds.file)
+	err = partial.Conclude(index, ds.out_files)
+	if err != nil {
+		return false, err
+	}
 	if ds.verbose {
 		fmt.Printf("piece %d finished\n", index)
 	}

@@ -66,15 +66,19 @@ func readFileContent(f *os.File) ([]byte, error) {
 	return io.ReadAll(f)
 }
 
-func TestWriteData_SingleFile(t *testing.T) {
-	ofm, cleanup := setupTestFiles(t, []int{100})
+func TestWritePiece_SingleFile(t *testing.T) {
+	ofm, cleanup := setupTestFiles(t, []int{16384}) // Exactly one piece size
 	defer cleanup()
 
-	// Write to middle of file
-	data := []byte("HELLO")
-	err := ofm.WriteData(0, 10, data)
+	// Write a full piece to the file
+	data := make([]byte, 16384)
+	for i := range data {
+		data[i] = byte(i % 256)
+	}
+
+	err := ofm.WritePiece(0, data)
 	if err != nil {
-		t.Fatalf("WriteData failed: %v", err)
+		t.Fatalf("WritePiece failed: %v", err)
 	}
 
 	content, err := readFileContent(ofm.files[0])
@@ -82,256 +86,241 @@ func TestWriteData_SingleFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expected := make([]byte, 100)
-	copy(expected[10:15], []byte("HELLO"))
-
-	if !bytes.Equal(content, expected) {
-		t.Errorf("File content mismatch. Got: %s, Expected zeros with HELLO at offset 10", string(content[10:15]))
+	if !bytes.Equal(content, data) {
+		t.Errorf("File content mismatch. Expected full piece data")
 	}
 }
 
-func TestWriteData_ExactFileBoundary(t *testing.T) {
-	ofm, cleanup := setupTestFiles(t, []int{50, 50})
+func TestWritePiece_ExactFileBoundary(t *testing.T) {
+	// Create two files that together equal exactly one piece
+	ofm, cleanup := setupTestFiles(t, []int{8192, 8192}) // 8KB + 8KB = 16KB (one piece)
 	defer cleanup()
 
-	// Write exactly at boundary between files
-	data := []byte("TEST")
-	err := ofm.WriteData(0, 48, data) // 48-52 spans both files
-	if err != nil {
-		t.Fatalf("WriteData failed: %v", err)
-	}
-
-	// Check first file
-	content1, _ := readFileContent(ofm.files[0])
-	if string(content1[48:50]) != "TE" {
-		t.Errorf("File 1 got %s, expected TE", string(content1[48:50]))
-	}
-
-	// Check second file
-	content2, _ := readFileContent(ofm.files[1])
-	if string(content2[0:2]) != "ST" {
-		t.Errorf("File 2 got %s, expected ST", string(content2[0:2]))
-	}
-}
-
-func TestWriteData_SpanningMultipleFiles(t *testing.T) {
-	ofm, cleanup := setupTestFiles(t, []int{30, 30, 30})
-	defer cleanup()
-
-	// Write data spanning all 3 files
-	data := []byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ012345")
-	err := ofm.WriteData(0, 20, data) // Writes from offset 20 to 56
-	if err != nil {
-		t.Fatalf("WriteData failed: %v", err)
-	}
-
-	// Verify each file
-	tests := []struct {
-		fileIdx  int
-		offset   int
-		expected string
-	}{
-		{0, 20, "ABCDEFGHIJ"},
-		{1, 0, "KLMNOPQRSTUVWXYZ012345"},
-		{2, 0, "\x00"}, // nothing written to third file
-	}
-
-	for _, tt := range tests {
-		content, _ := readFileContent(ofm.files[tt.fileIdx])
-		start := tt.offset
-		end := start + len(tt.expected)
-		actual := string(content[start:end])
-		if actual != tt.expected {
-			t.Errorf("File %d offset %d: got %q, expected %q",
-				tt.fileIdx, tt.offset, actual, tt.expected)
-		}
-	}
-}
-
-func TestWriteData_DataCompletelyInsideFile(t *testing.T) {
-	ofm, cleanup := setupTestFiles(t, []int{100, 100})
-	defer cleanup()
-
-	// Write data completely inside second file
-	data := []byte("INSIDE")
-	err := ofm.WriteData(0, 120, data) // Should only write to second file at offset 20
-	if err != nil {
-		t.Fatalf("WriteData failed: %v", err)
-	}
-
-	// First file should be unchanged
-	content1, _ := readFileContent(ofm.files[0])
-	for i, b := range content1 {
-		if b != 0 {
-			t.Errorf("File 1 should be all zeros, but got %v at offset %d", b, i)
-		}
-	}
-
-	// Second file should have data at offset 20
-	content2, _ := readFileContent(ofm.files[1])
-	if string(content2[20:26]) != "INSIDE" {
-		t.Errorf("File 2 got %s, expected INSIDE", string(content2[20:26]))
-	}
-}
-
-func TestWriteData_DataOverlapsFileStart(t *testing.T) {
-	ofm, cleanup := setupTestFiles(t, []int{50, 50})
-	defer cleanup()
-
-	// Data starts before file and ends inside it
-	data := []byte("PREHELLO")
-	err := ofm.WriteData(0, 45, data) // Data from offset 45-53
-	if err != nil {
-		t.Fatalf("WriteData failed: %v", err)
-	}
-
-	content1, _ := readFileContent(ofm.files[0])
-	if string(content1[45:50]) != "PREHE" {
-		t.Errorf("File 1 got %s, expected PREHE", string(content1[45:50]))
-	}
-
-	content2, _ := readFileContent(ofm.files[1])
-	if string(content2[0:3]) != "LLO" {
-		t.Errorf("File 2 got %s, expected LLO", string(content2[0:3]))
-	}
-}
-
-func TestWriteData_DataOverlapsFileEnd(t *testing.T) {
-	ofm, cleanup := setupTestFiles(t, []int{50, 50})
-	defer cleanup()
-
-	// Data starts inside file and ends after it
-	data := []byte("WORLDPOST")
-	err := ofm.WriteData(0, 47, data) // Data from offset 47-56
-	if err != nil {
-		t.Fatalf("WriteData failed: %v", err)
-	}
-
-	content1, _ := readFileContent(ofm.files[0])
-	if string(content1[47:50]) != "WOR" {
-		t.Errorf("File 1 got %s, expected WOR", string(content1[47:50]))
-	}
-
-	content2, _ := readFileContent(ofm.files[1])
-	if string(content2[0:6]) != "LDPOST" {
-		t.Errorf("File 2 got %s, expected LDPOST", string(content2[0:6]))
-	}
-}
-
-func TestWriteData_NoOverlap(t *testing.T) {
-	ofm, cleanup := setupTestFiles(t, []int{10, 10, 10})
-	defer cleanup()
-
-	// Write completely outside file ranges
-	data := []byte("TEST")
-	err := ofm.WriteData(0, 35, data) // Offset 35-39, files only go to 30
-	if err != nil {
-		t.Fatalf("WriteData failed: %v", err)
-	}
-
-	// All files should remain unchanged
-	for i, file := range ofm.files {
-		content, _ := readFileContent(file)
-		for j, b := range content {
-			if b != 0 {
-				t.Errorf("File %d should be all zeros, but got %v at offset %d", i, b, j)
-			}
-		}
-	}
-}
-
-func TestWriteData_ExactFileSize(t *testing.T) {
-	ofm, cleanup := setupTestFiles(t, []int{20})
-	defer cleanup()
-
-	// Write exactly filling the file
-	data := []byte("0123456789ABCDEFGHIJ")
-	if len(data) != 20 {
-		t.Fatalf("Test data should be 20 bytes")
-	}
-
-	err := ofm.WriteData(0, 0, data)
-	if err != nil {
-		t.Fatalf("WriteData failed: %v", err)
-	}
-
-	content, _ := readFileContent(ofm.files[0])
-	if string(content) != string(data) {
-		t.Errorf("File content mismatch. Got: %s, Expected: %s", string(content), string(data))
-	}
-}
-
-func TestWriteData_MultiplePieces(t *testing.T) {
-	ofm, cleanup := setupTestFiles(t, []int{100})
-	defer cleanup()
-
-	// Test with piece > 0
-	data := []byte("PIECE1")
-	err := ofm.WriteData(2, 10, data) // Piece 2, offset 10 = absolute offset (2*16384)+10 = 32778
-	if err != nil {
-		t.Fatalf("WriteData failed: %v", err)
-	}
-
-	// Since our test file is only 100 bytes, and we're writing at offset 32778,
-	// this should be a no-op (no overlap)
-	content, _ := readFileContent(ofm.files[0])
-	for i, b := range content {
-		if b != 0 {
-			t.Errorf("File should be all zeros, but got %v at offset %d", b, i)
-		}
-	}
-}
-
-func TestWriteData_EmptyData(t *testing.T) {
-	ofm, cleanup := setupTestFiles(t, []int{100})
-	defer cleanup()
-
-	// Write empty data
-	err := ofm.WriteData(0, 10, []byte{})
-	if err != nil {
-		t.Fatalf("WriteData failed with empty data: %v", err)
-	}
-
-	content, _ := readFileContent(ofm.files[0])
-	for i, b := range content {
-		if b != 0 {
-			t.Errorf("File should be all zeros, but got %v at offset %d", b, i)
-		}
-	}
-}
-
-func TestWriteData_LargeDataAcrossBoundary(t *testing.T) {
-	ofm, cleanup := setupTestFiles(t, []int{1000, 1000})
-	defer cleanup()
-
-	// Write 1500 bytes spanning both files
-	data := make([]byte, 1500)
+	// Write a full piece that spans both files
+	data := make([]byte, 16384)
 	for i := range data {
 		data[i] = byte(i % 256)
 	}
 
-	err := ofm.WriteData(0, 500, data)
+	err := ofm.WritePiece(0, data)
 	if err != nil {
-		t.Fatalf("WriteData failed: %v", err)
+		t.Fatalf("WritePiece failed: %v", err)
 	}
 
-	// Verify first file (bytes 500-999)
+	// Check first file (first 8192 bytes)
 	content1, _ := readFileContent(ofm.files[0])
-	for i := 500; i < 1000; i++ {
-		if content1[i] != byte((i-500)%256) {
-			t.Errorf("File 1 mismatch at offset %d: got %d, expected %d",
-				i, content1[i], byte((i-500)%256))
-			break
-		}
+	if !bytes.Equal(content1, data[:8192]) {
+		t.Errorf("File 1 content mismatch")
 	}
 
-	// Verify second file (bytes 0-499 of data, which is bytes 1000-1499 absolute)
+	// Check second file (next 8192 bytes)
 	content2, _ := readFileContent(ofm.files[1])
-	for i := 0; i < 500; i++ {
-		if content2[i] != byte((i+500)%256) {
-			t.Errorf("File 2 mismatch at offset %d: got %d, expected %d",
-				i, content2[i], byte((i+500)%256))
-			break
+	if !bytes.Equal(content2, data[8192:]) {
+		t.Errorf("File 2 content mismatch")
+	}
+}
+
+func TestWritePiece_SpanningMultipleFiles(t *testing.T) {
+	// Create three files that together span a piece
+	ofm, cleanup := setupTestFiles(t, []int{5000, 5000, 6384}) // Total = 16384 (one piece)
+	defer cleanup()
+
+	// Write a full piece spanning all 3 files
+	data := make([]byte, 16384)
+	for i := range data {
+		data[i] = byte(i % 256)
+	}
+
+	err := ofm.WritePiece(0, data)
+	if err != nil {
+		t.Fatalf("WritePiece failed: %v", err)
+	}
+
+	// Verify each file got the correct portion
+	content1, _ := readFileContent(ofm.files[0])
+	if !bytes.Equal(content1, data[:5000]) {
+		t.Errorf("File 1 content mismatch")
+	}
+
+	content2, _ := readFileContent(ofm.files[1])
+	if !bytes.Equal(content2, data[5000:10000]) {
+		t.Errorf("File 2 content mismatch")
+	}
+
+	content3, _ := readFileContent(ofm.files[2])
+	if !bytes.Equal(content3, data[10000:]) {
+		t.Errorf("File 3 content mismatch")
+	}
+}
+
+func TestWritePiece_PartialPieceAtEnd(t *testing.T) {
+	// Test writing a partial piece (last piece of torrent)
+	ofm, cleanup := setupTestFiles(t, []int{10000}) // File smaller than piece size
+	defer cleanup()
+
+	// Write data that's smaller than piece size (simulating last piece)
+	data := make([]byte, 10000)
+	for i := range data {
+		data[i] = byte(i % 256)
+	}
+
+	err := ofm.WritePiece(0, data)
+	if err != nil {
+		t.Fatalf("WritePiece failed: %v", err)
+	}
+
+	content, err := readFileContent(ofm.files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Equal(content, data) {
+		t.Errorf("File content mismatch for partial piece")
+	}
+}
+
+func TestWritePiece_MultiplePieces(t *testing.T) {
+	// Create a file large enough for multiple pieces
+	ofm, cleanup := setupTestFiles(t, []int{32768}) // 32KB = 2 pieces
+	defer cleanup()
+
+	// Write first piece
+	data1 := make([]byte, 16384)
+	for i := range data1 {
+		data1[i] = byte(i % 256)
+	}
+
+	err := ofm.WritePiece(0, data1)
+	if err != nil {
+		t.Fatalf("WritePiece failed for piece 0: %v", err)
+	}
+
+	// Write second piece
+	data2 := make([]byte, 16384)
+	for i := range data2 {
+		data2[i] = byte((i + 100) % 256) // Different pattern
+	}
+
+	err = ofm.WritePiece(1, data2)
+	if err != nil {
+		t.Fatalf("WritePiece failed for piece 1: %v", err)
+	}
+
+	content, err := readFileContent(ofm.files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Check combined content
+	expected := append(data1, data2...)
+	if !bytes.Equal(content, expected) {
+		t.Errorf("File content mismatch for multiple pieces")
+	}
+}
+
+func TestWritePiece_NoOverlap(t *testing.T) {
+	ofm, cleanup := setupTestFiles(t, []int{100})
+	defer cleanup()
+
+	// Write piece 1 (starts at offset 16384, which is beyond our 100-byte file)
+	data := make([]byte, 16384)
+	for i := range data {
+		data[i] = byte(i % 256)
+	}
+
+	err := ofm.WritePiece(1, data)
+	if err != nil {
+		t.Fatalf("WritePiece failed: %v", err)
+	}
+
+	// File should remain unchanged (all zeros)
+	content, _ := readFileContent(ofm.files[0])
+	for i, b := range content {
+		if b != 0 {
+			t.Errorf("File should be all zeros, but got %v at offset %d", b, i)
 		}
+	}
+}
+
+func TestWritePiece_EmptyData(t *testing.T) {
+	ofm, cleanup := setupTestFiles(t, []int{100})
+	defer cleanup()
+
+	// Write empty data
+	err := ofm.WritePiece(0, []byte{})
+	if err != nil {
+		t.Fatalf("WritePiece failed with empty data: %v", err)
+	}
+
+	content, _ := readFileContent(ofm.files[0])
+	for i, b := range content {
+		if b != 0 {
+			t.Errorf("File should be all zeros, but got %v at offset %d", b, i)
+		}
+	}
+}
+
+func TestWritePiece_PieceBeyondFileRange(t *testing.T) {
+	ofm, cleanup := setupTestFiles(t, []int{100})
+	defer cleanup()
+
+	// Write a piece that starts way beyond the file
+	data := make([]byte, 16384)
+	for i := range data {
+		data[i] = byte(i % 256)
+	}
+
+	// Piece 10 starts at offset 163840, far beyond our 100-byte file
+	err := ofm.WritePiece(10, data)
+	if err != nil {
+		t.Fatalf("WritePiece failed: %v", err)
+	}
+
+	// File should remain unchanged
+	content, _ := readFileContent(ofm.files[0])
+	for i, b := range content {
+		if b != 0 {
+			t.Errorf("File should be all zeros, but got %v at offset %d", b, i)
+		}
+	}
+}
+
+func TestWritePiece_OverwriteData(t *testing.T) {
+	ofm, cleanup := setupTestFiles(t, []int{16384})
+	defer cleanup()
+
+	// Write first piece
+	data1 := make([]byte, 16384)
+	for i := range data1 {
+		data1[i] = byte(i % 256)
+	}
+
+	err := ofm.WritePiece(0, data1)
+	if err != nil {
+		t.Fatalf("WritePiece failed for first write: %v", err)
+	}
+
+	// Overwrite with different data
+	data2 := make([]byte, 16384)
+	for i := range data2 {
+		data2[i] = byte((i + 100) % 256)
+	}
+
+	err = ofm.WritePiece(0, data2)
+	if err != nil {
+		t.Fatalf("WritePiece failed for overwrite: %v", err)
+	}
+
+	content, err := readFileContent(ofm.files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should have the second data, not the first
+	if !bytes.Equal(content, data2) {
+		t.Errorf("File should contain overwritten data")
+	}
+	if bytes.Equal(content, data1) {
+		t.Errorf("File should not contain original data after overwrite")
 	}
 }
