@@ -11,7 +11,6 @@ import (
 	"github.com/chrispritchard/gorrent/internal/bitfields"
 )
 
-// Test setup helper (updated to use real bitfields)
 func setupBitfieldTest(t *testing.T, fileSizes []int, pieceLength int, totalLength int) (*OutFileManager, func()) {
 	t.Helper()
 	tempDir := t.TempDir()
@@ -55,14 +54,14 @@ func setupBitfieldTest(t *testing.T, fileSizes []int, pieceLength int, totalLeng
 	numPieces := (totalLength + pieceLength - 1) / pieceLength
 	hashes := make([]string, numPieces)
 
-	for i := 0; i < numPieces; i++ {
+	for i := range numPieces {
 		pieceStart := i * pieceLength
 		pieceEnd := min(pieceStart+pieceLength, totalLength)
 		pieceSize := pieceEnd - pieceStart
 
 		// Create test piece data
 		pieceData := make([]byte, pieceSize)
-		for j := 0; j < pieceSize; j++ {
+		for j := range pieceSize {
 			pieceData[j] = byte((pieceStart + j) % 256)
 		}
 
@@ -90,7 +89,7 @@ func countSetBits(bf bitfields.BitField) int {
 	count := 0
 	// Calculate max pieces based on bitfield size
 	maxPieces := len(bf.Data) * 8
-	for i := 0; i < maxPieces; i++ {
+	for i := range maxPieces {
 		if bf.Get(i) {
 			count++
 		}
@@ -114,7 +113,7 @@ func TestGetDataRange_Basic(t *testing.T) {
 	}
 
 	// Verify content
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		expected := byte(10 + i)
 		if data[i] != expected {
 			t.Errorf("Data[%d] = %d, expected %d", i, data[i], expected)

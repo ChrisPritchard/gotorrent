@@ -120,7 +120,7 @@ func (ofm *OutFileManager) Bitfield() (*bitfields.BitField, error) {
 }
 
 func (ofm *OutFileManager) get_data_range(data_start, data_end int) ([]byte, error) {
-	data := make([]byte, data_start-data_end)
+	data := make([]byte, data_end-data_start)
 
 	for i, fi := range ofm.indices {
 		if fi.start_offset >= data_end || fi.end_offset <= data_start {

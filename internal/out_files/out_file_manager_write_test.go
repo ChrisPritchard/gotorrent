@@ -133,7 +133,7 @@ func TestWriteData_SpanningMultipleFiles(t *testing.T) {
 	}{
 		{0, 20, "ABCDEFGHIJ"},
 		{1, 0, "KLMNOPQRSTUVWXYZ012345"},
-		{2, 0, "6"}, // Just the '6' from "0123456..." overflow
+		{2, 0, "\x00"}, // nothing written to third file
 	}
 
 	for _, tt := range tests {
