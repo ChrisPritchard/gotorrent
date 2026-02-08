@@ -21,18 +21,18 @@ type DownloadState struct {
 	complete  int
 	peers     []*peer.PeerHandler
 	out_files *outfiles.OutFileManager
-	verbose   bool
+	log       func(format string, a ...any)
 	mutex     sync.Mutex
 }
 
-func NewDownloadState(metadata torrent_files.TorrentMetadata, peers []*peer.PeerHandler, out_file_manager *outfiles.OutFileManager, verbose bool) *DownloadState {
+func NewDownloadState(metadata torrent_files.TorrentMetadata, peers []*peer.PeerHandler, out_file_manager *outfiles.OutFileManager, log func(format string, a ...any)) *DownloadState {
 	return &DownloadState{
 		requests:  CreateEmptyRequestMap(REQUEST_MAX_AGE),
 		partials:  CreatePartialPieces(metadata),
 		complete:  0,
 		peers:     peers,
 		out_files: out_file_manager,
-		verbose:   verbose,
+		log:       log,
 		mutex:     sync.Mutex{},
 	}
 }
@@ -64,9 +64,7 @@ func (ds *DownloadState) ReceiveBlock(index, begin int, piece []byte) (finished 
 	partial := ds.partials[index]
 
 	partial.Set(int(begin), piece)
-	if ds.verbose {
-		fmt.Printf("piece %d block offset %d received\n", index, begin)
-	}
+	ds.log("piece %d block offset %d received", index, begin)
 
 	if !partial.Valid() {
 		return false, nil
@@ -76,9 +74,7 @@ func (ds *DownloadState) ReceiveBlock(index, begin int, piece []byte) (finished 
 	if err != nil {
 		return false, err
 	}
-	if ds.verbose {
-		fmt.Printf("piece %d finished\n", index)
-	}
+	ds.log("piece %d finished", index)
 
 	for _, p := range ds.peers {
 		err := p.SendHave(index)
@@ -139,9 +135,7 @@ func (ds *DownloadState) StartRequestingPieces(ctx context.Context, error_channe
 					}
 
 					ds.requests.Set(piece_index, block_offset)
-					if ds.verbose {
-						fmt.Printf("requested block %d/%d (offset %d) of piece %d from peer %s\n", block_index+1, partial.Length(), block_offset, piece_index, valid_peer.Id)
-					}
+					ds.log("requested block %d/%d (offset %d) of piece %d from peer %s", block_index+1, partial.Length(), block_offset, piece_index, valid_peer.Id)
 					return nil
 				})
 				if err != nil {

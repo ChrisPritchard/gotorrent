@@ -20,28 +20,37 @@ type PeerHandler struct {
 	requests map[int]map[int]struct{}
 }
 
-func ConnectToPeer(peer tracker.PeerInfo, info_hash, local_id []byte, local_bitfield *BitField) (*PeerHandler, error) {
+func ConnectToPeer(peer tracker.PeerInfo, info_hash, local_id []byte, local_bitfield *BitField, log func(format string, a ...any)) (*PeerHandler, error) {
+	peer_id := peer.Id
+	if peer_id == "" {
+		peer_id = fmt.Sprintf("%s:%d", peer.IP, peer.Port)
+	}
+
 	conn, err := handshake(info_hash, local_id, peer)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error connecting to peer %s: %s", peer_id, err.Error())
 	}
+	log("completed handshake with peer %s", peer_id)
 
 	field, err := exchange_bitfields(conn, local_bitfield)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error connecting to peer %s: %s", peer_id, err.Error())
 	}
+	log("exchanged bitfields with peer %s, received:\n\t%s", peer_id, field.BitString())
 
 	err = send_interested(conn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error connecting to peer %s: %s", peer_id, err.Error())
 	}
+	log("sent 'interested' to peer %s", peer_id)
 
 	err = receive_unchoked(conn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error connecting to peer %s: %s", peer_id, err.Error())
 	}
+	log("received 'unchoke' from peer %s", peer_id)
 
-	handler := PeerHandler{peer.Id, field, conn, sync.Mutex{}, map[int]map[int]struct{}{}}
+	handler := PeerHandler{peer_id, field, conn, sync.Mutex{}, map[int]map[int]struct{}{}}
 	return &handler, nil
 }
 

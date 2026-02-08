@@ -88,6 +88,7 @@ func exchange_bitfields(conn net.Conn, local *BitField) (remote *BitField, err e
 	if len(local.Data) != len(remote.Data) {
 		err = fmt.Errorf("remote bitfield has a different length (%d) than local bitfield (%d)", len(remote.Data), len(local.Data))
 	}
+	remote.Length = local.Length
 
 	return
 }

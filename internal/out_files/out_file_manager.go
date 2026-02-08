@@ -60,12 +60,7 @@ func (ofm *OutFileManager) Close() {
 }
 
 func (ofm *OutFileManager) WritePiece(piece int, data []byte) error {
-	if ofm.bitfield != nil {
-		err := ofm.bitfield.Set(uint(piece))
-		if err != nil {
-			return err
-		}
-	}
+	ofm.bitfield = nil
 
 	data_start := piece * ofm.piece_length
 	data_end := data_start + len(data)
@@ -174,6 +169,16 @@ func create_file(base_dir string, path []string, length int64) (*os.File, error)
 	dir := filepath.Dir(full_path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
+	}
+
+	if info, err := os.Stat(full_path); err == nil {
+		if info.Size() == length {
+			out_file, err := os.OpenFile(full_path, os.O_RDWR, 0644)
+			if err != nil {
+				return nil, err
+			}
+			return out_file, nil
+		}
 	}
 
 	out_file, err := os.Create(full_path)

@@ -20,6 +20,12 @@ import (
 
 var verbose bool
 
+func vprintfln(format string, a ...any) {
+	if verbose {
+		fmt.Printf(format+"\n", a...)
+	}
+}
+
 func main() {
 	fmt.Print("\033[38;5;153m") // pale blue
 	defer fmt.Print("\033[0m")
@@ -45,16 +51,19 @@ func main() {
 
 func try_download(torrent_file_path string) error {
 	metadata, err := parse_torrent(torrent_file_path)
+	vprintfln("parsed torrent successfully")
 	tracker_info, err := tracker.CallTracker(metadata)
 	if err != nil {
 		return fmt.Errorf("failed to register with tracker: %v", err)
 	}
+	vprintfln("registered with tracker")
 
 	out_files, err := outfiles.CreateOutFileManager(metadata, "")
 	if err != nil {
 		return fmt.Errorf("failed to establish local files: %v", err)
 	}
 	defer out_files.Close()
+	vprintfln("created local file(s)")
 
 	return start_state_machine(metadata, tracker_info, out_files)
 }
@@ -75,31 +84,36 @@ func parse_torrent(torrent_file_path string) (TorrentMetadata, error) {
 }
 
 func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerResponse, out_file_manager *outfiles.OutFileManager) error {
+
+	current_local_field, err := out_file_manager.Bitfield()
+	if err != nil {
+		return err
+	}
+	vprintfln("created local bitfield:\n\t%s", current_local_field.BitString())
+
+	peers := connect_to_peers(metadata, tracker_info, current_local_field)
+	if len(peers) == 0 {
+		return fmt.Errorf("failed to connect to a peer")
+	}
+	vprintfln("connected to %d peers\n", len(peers))
+
+	if current_local_field.Incomplete() {
+		return request_pieces(metadata, peers, out_file_manager)
+	} else {
+		return seed_pieces(metadata, peers, out_file_manager)
+	}
+}
+
+func request_pieces(metadata TorrentMetadata, peers []*peer.PeerHandler, out_file_manager *outfiles.OutFileManager) error {
 	ctx := context.Background()
 	defer ctx.Done()
 
 	received_channel := make(chan messaging.Received)
 	error_channel := make(chan error)
 
-	current_local_field, err := out_file_manager.Bitfield()
-	if err != nil {
-		return err
-	}
-	peers := connect_to_peers(metadata, tracker_info, current_local_field)
-	if len(peers) == 0 {
-		return fmt.Errorf("failed to connect to a peer")
-	}
-	if verbose {
-		fmt.Printf("Connected to %d peers\n", len(peers))
-	}
-
-	for _, p := range peers {
-		p.StartReceiving(ctx, received_channel, error_channel)
-		defer p.Close()
-	}
-
-	download_state := downloading.NewDownloadState(metadata, peers, out_file_manager, verbose)
+	download_state := downloading.NewDownloadState(metadata, peers, out_file_manager, vprintfln)
 	download_state.StartRequestingPieces(ctx, error_channel)
+	vprintfln("started requesting missing pieces")
 
 	keep_alive := time.NewTicker(2 * time.Minute)
 	progress_ticker := time.NewTicker(250 * time.Millisecond)
@@ -108,14 +122,20 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 	ba := &terminal.BufferedArea{}
 	defer ba.Close()
 
+	for _, p := range peers {
+		p.StartReceiving(ctx, received_channel, error_channel)
+		defer p.Close()
+	}
+
 	for {
 		select {
 		case <-keep_alive.C:
 			for _, p := range peers {
 				p.SendKeepAlive()
 			}
+			vprintfln("sent keep alives")
 		case <-progress_ticker.C:
-			print_status(ba, metadata, len(peers), download_state.CompletedPieces(), verbose)
+			print_status(ba, metadata, len(peers), download_state.CompletedPieces())
 		case received := <-received_channel:
 			if received.Kind == messaging.MSG_PIECE {
 				index, begin, piece := received.AsPiece()
@@ -123,17 +143,13 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 				if err != nil {
 					return err
 				}
-				if verbose {
-					fmt.Printf("Received block: index=%d begin=%d len=%d\n", index, begin, len(piece))
-				}
+				vprintfln("received block: index=%d begin=%d len=%d", index, begin, len(piece))
 				if finished {
-					print_status(ba, metadata, len(peers), download_state.CompletedPieces(), verbose)
+					print_status(ba, metadata, len(peers), download_state.CompletedPieces())
 					return nil // complete
 				}
 			} else {
-				if verbose {
-					fmt.Printf("received an unhandled kind: %d\n", received.Kind)
-				}
+				vprintfln("received an unhandled kind: %d", received.Kind)
 			}
 		case err := <-error_channel:
 			return err
@@ -141,20 +157,27 @@ func start_state_machine(metadata TorrentMetadata, tracker_info tracker.TrackerR
 	}
 }
 
+func seed_pieces(metadata TorrentMetadata, peers []*peer.PeerHandler, out_file_manager *outfiles.OutFileManager) error {
+	panic("unimplemented")
+}
+
 func connect_to_peers(metadata TorrentMetadata, tracker_response tracker.TrackerResponse, local_bitfield *bitfields.BitField) []*peer.PeerHandler {
 	ops := make([]util.Op[*peer.PeerHandler], len(tracker_response.Peers))
 	for i, p := range tracker_response.Peers {
 		local_p := p
 		ops[i] = func() (*peer.PeerHandler, error) {
-			return peer.ConnectToPeer(local_p, metadata.InfoHash[:], tracker_response.LocalID, local_bitfield)
+			return peer.ConnectToPeer(local_p, metadata.InfoHash[:], tracker_response.LocalID, local_bitfield, vprintfln)
 		}
 	}
 
-	conns, _ := util.Concurrent(ops, 20)
+	conns, errs := util.Concurrent(ops, 20)
+	for _, e := range errs {
+		vprintfln(e.Error())
+	}
 	return conns
 }
 
-func print_status(ba *terminal.BufferedArea, metadata TorrentMetadata, connected_peers, finished_pieces int, verbose bool) {
+func print_status(ba *terminal.BufferedArea, metadata TorrentMetadata, connected_peers, finished_pieces int) {
 	if verbose {
 		return
 	}
